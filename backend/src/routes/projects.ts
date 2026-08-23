@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { projectRegistryAsRegistrar } from "../blockchain/contracts";
 import { validateBody } from "../middleware/validate";
+import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseJsonField } from "../utils/serialize";
 import { ecosystemToInt, ECOSYSTEM_NAMES } from "../utils/ecosystem";
@@ -62,9 +63,15 @@ function serializeProject(
  * event-sync service's next pass. That sync service (see services/eventSync.ts) later upserts
  * the same row from the chain's own event log — idempotent by projectId — so this write-through
  * is a responsiveness optimisation, not a second source of truth.
+ *
+ * Gated to the NGO role at the API layer (requireRole below) — this is who's expected to be
+ * onboarding a restoration site. It's a separate guarantee from the on-chain one:
+ * ProjectRegistry itself only lets the registrar wallet call registerProject regardless of who
+ * hits this endpoint, so a bug here would fail closed on chain even if this check didn't exist.
  */
 projectsRouter.post(
   "/",
+  requireRole(["NGO"]),
   validateBody(createProjectSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof createProjectSchema>;

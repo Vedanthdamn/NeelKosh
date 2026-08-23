@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { verificationRegistry } from "../blockchain/contracts";
 import { findImplementerWallet } from "../blockchain/wallets";
 import { validateBody } from "../middleware/validate";
+import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { logStage } from "../utils/logger";
 import { runOracleVerification } from "../services/oracleBridge";
@@ -120,9 +121,18 @@ mrvRouter.post(
  * credits it unlocks as the oracle — see services/oracleBridge.ts for why this two-transaction
  * sequence, not a single privileged call, is the actual answer to "how do you know these
  * credits are backed by something real."
+ *
+ * Gated to the VERIFIER role at the API layer. This is independent of, not a replacement for,
+ * the on-chain guarantee: the actual approveVerification call is still signed by the single
+ * server-held verifier wallet (see blockchain/wallets.ts), which VerificationRegistry's own
+ * VERIFIER_ROLE restricts regardless of who reaches this endpoint. What this guard adds is
+ * accountability at the API layer — which authenticated human triggered a given approval — on
+ * top of an on-chain contract that would refuse the transaction anyway if it didn't come from
+ * the right key.
  */
 mrvRouter.post(
   "/:submissionId/verify",
+  requireRole(["VERIFIER"]),
   asyncHandler(async (req, res) => {
     const submissionId = Number(req.params.submissionId);
     if (!Number.isInteger(submissionId) || submissionId <= 0) {
