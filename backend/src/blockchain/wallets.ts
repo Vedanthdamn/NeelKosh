@@ -33,7 +33,24 @@ export function findImplementerWallet(address: string): ethers.Wallet | undefine
   return implementerWalletsByAddress.get(address.toLowerCase());
 }
 
+/**
+ * A fixed pool of "buyer" wallets this backend can sign on behalf of, the marketplace-side
+ * counterpart to implementerWallets above — same demo affordance, same caveat: a production
+ * buyer connects their own wallet client-side (MetaMask, WalletConnect) and signs
+ * claimFaucet/buyCredits/approve themselves, rather than this backend holding their key.
+ */
+export const buyerWallets = config.wallets.buyerPrivateKeys.map(
+  (privateKey) => new ethers.Wallet(privateKey, provider)
+);
+
+const buyerWalletsByAddress = new Map(buyerWallets.map((wallet) => [wallet.address.toLowerCase(), wallet]));
+
+/** Returns the server-held wallet for a buyer address, or undefined if this backend doesn't hold its key. */
+export function findBuyerWallet(address: string): ethers.Wallet | undefined {
+  return buyerWalletsByAddress.get(address.toLowerCase());
+}
+
 /** Every wallet this backend can sign with, for retirement's "who currently holds this balance" lookup. */
 export function allServerWallets(): ethers.Wallet[] {
-  return [registrarWallet, verifierWallet, oracleWallet, ...implementerWallets];
+  return [registrarWallet, verifierWallet, oracleWallet, ...implementerWallets, ...buyerWallets];
 }

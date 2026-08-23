@@ -2,8 +2,8 @@ import { Router } from "express";
 import { ethers } from "ethers";
 import { z } from "zod";
 import { prisma } from "../db";
-import { carbonCreditToken, marketplace } from "../blockchain/contracts";
-import { findImplementerWallet } from "../blockchain/wallets";
+import { carbonCreditToken, marketplace, simStablecoin } from "../blockchain/contracts";
+import { findImplementerWallet, findBuyerWallet } from "../blockchain/wallets";
 import { config } from "../config";
 import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
@@ -20,6 +20,11 @@ const listSchema = z.object({
   // taken as a plain number, since the on-chain smallest-unit value (18 decimals) can exceed
   // Number.MAX_SAFE_INTEGER for an ordinary price.
   pricePerTonneNKR: z.string().min(1),
+});
+
+const purchaseSchema = z.object({
+  listingId: z.coerce.number().int().positive(),
+  amount: z.coerce.number().int().positive(),
 });
 
 /**
@@ -168,6 +173,193 @@ marketplaceRouter.get(
           pricePerTonne: listing.pricePerTonne,
           listTxHash: listing.listTxHash,
           createdAt: listing.createdAt,
+          project: project ? { projectId: project.projectId, name: project.name, ecosystem: project.ecosystem } : null,
+        };
+      }),
+    });
+  })
+);
+
+/**
+ * Buys some or all of a listing. BUYER-only, signed by the authenticated buyer's server-held
+ * wallet (see blockchain/wallets.ts). Reads the listing straight from the chain rather than the
+ * cache — this is a money-moving call, so it uses the same authoritative source buyCredits
+ * itself will check, not a snapshot that might be a block or two stale.
+ *
+ * Before sending the transaction, this checks the buyer's stablecoin balance and Marketplace
+ * allowance itself and fails with a specific, actionable message if either is short — buyCredits
+ * would revert on the same conditions (ERC20InsufficientBalance / ERC20InsufficientAllowance),
+ * but a raw revert reason doesn't say how much is missing or what to do about it. This
+ * deliberately does NOT auto-approve on the buyer's behalf even though this backend holds their
+ * key for the demo: unlike listCredits' ERC-1155 escrow approval (a mechanical prerequisite the
+ * seller has no reason to reason about), an ERC-20 spending allowance is the buyer's actual
+ * consent to a specific spend, worth surfacing rather than silently granting.
+ */
+marketplaceRouter.post(
+  "/purchase",
+  requireRole(["BUYER"]),
+  validateBody(purchaseSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof purchaseSchema>;
+
+    const buyerWallet = findBuyerWallet(req.user!.walletAddress);
+    if (!buyerWallet) {
+      res.status(400).json({
+        error: `This backend does not hold a key for buyer ${req.user!.walletAddress}. Sign this purchase from that wallet directly.`,
+      });
+      return;
+    }
+
+    let listing;
+    try {
+      listing = await marketplace.getListing(body.listingId);
+    } catch {
+      res.status(404).json({ error: `No listing with id ${body.listingId}` });
+      return;
+    }
+    if (!listing.active) {
+      res.status(400).json({ error: `Listing ${body.listingId} is no longer active (sold out or withdrawn).` });
+      return;
+    }
+    if (BigInt(body.amount) > (listing.amount as bigint)) {
+      res.status(400).json({
+        error: `Listing ${body.listingId} only has ${listing.amount} tonnes remaining (requested ${body.amount}).`,
+      });
+      return;
+    }
+
+    const totalPrice = (listing.pricePerTonne as bigint) * BigInt(body.amount);
+
+    const [balance, allowance]: [bigint, bigint] = await Promise.all([
+      simStablecoin.balanceOf(buyerWallet.address),
+      simStablecoin.allowance(buyerWallet.address, config.contracts.Marketplace),
+    ]);
+    if (balance < totalPrice) {
+      res.status(400).json({
+        error: `Insufficient NKR balance: this wallet holds ${ethers.formatUnits(balance, 18)} NKR but the purchase costs ${ethers.formatUnits(totalPrice, 18)} NKR. Claim from the faucet first — POST /api/marketplace/faucet.`,
+      });
+      return;
+    }
+    if (allowance < totalPrice) {
+      res.status(400).json({
+        error: `Insufficient allowance: Marketplace is approved to spend ${ethers.formatUnits(allowance, 18)} NKR from this wallet but the purchase costs ${ethers.formatUnits(totalPrice, 18)} NKR. Approve Marketplace (${config.contracts.Marketplace}) to spend at least that much NKR before purchasing.`,
+      });
+      return;
+    }
+
+    logStage("MARKETPLACE", `Buyer ${buyerWallet.address} purchasing credits`, {
+      listingId: body.listingId,
+      amount: body.amount,
+      totalPriceNKR: ethers.formatUnits(totalPrice, 18),
+    });
+
+    const marketplaceAsBuyer = marketplace.connect(buyerWallet) as ethers.Contract;
+    const tx = await marketplaceAsBuyer.buyCredits(body.listingId, body.amount);
+    const receipt = await tx.wait();
+
+    // Read the exact split back off the event Marketplace itself emitted, rather than
+    // recomputing it from the current split bps — those can change (setSplitBps) and this
+    // purchase settled at whatever was in effect at transaction time, not now.
+    const purchasedLog = receipt.logs
+      .map((log: ethers.Log) => {
+        try {
+          return { log, parsed: marketplace.interface.parseLog(log) };
+        } catch {
+          return null;
+        }
+      })
+      .find((entry: { log: ethers.Log; parsed: ethers.LogDescription | null } | null) => entry?.parsed?.name === "CreditsPurchased");
+
+    if (!purchasedLog?.parsed) {
+      // The transaction succeeded on chain but its own event wasn't found in the receipt —
+      // something is wrong enough with our ABI/wiring that trusting a self-computed split would
+      // be worse than surfacing this loudly.
+      throw new Error(`buyCredits transaction ${receipt.hash} succeeded but emitted no CreditsPurchased event.`);
+    }
+    const { args } = purchasedLog.parsed;
+
+    logStage("MARKETPLACE", "Purchased on chain", { txHash: receipt.hash });
+
+    const [projectId, vintage]: [bigint, bigint] = await carbonCreditToken.decodeTokenId(args.tokenId);
+
+    // Write-through cache; event-sync (services/eventSync.ts) reconciles this same row, and the
+    // listing's remaining amount, from the chain's own CreditsPurchased event on its next pass.
+    await prisma.marketplacePurchase.create({
+      data: {
+        listingId: body.listingId,
+        tokenId: (args.tokenId as bigint).toString(),
+        projectId: Number(projectId),
+        vintage: Number(vintage),
+        buyerAddress: buyerWallet.address,
+        sellerAddress: args.seller,
+        amount: Number(args.amount),
+        totalPrice: (args.totalPrice as bigint).toString(),
+        ngoAmount: (args.ngoAmount as bigint).toString(),
+        platformAmount: (args.platformAmount as bigint).toString(),
+        communityAmount: (args.communityAmount as bigint).toString(),
+        txHash: receipt.hash,
+        logIndex: purchasedLog.log.index,
+        purchasedAt: new Date(),
+      },
+    });
+    await prisma.marketplaceListing.updateMany({
+      where: { listingId: body.listingId },
+      data: { amount: Number(listing.amount) - body.amount },
+    });
+
+    res.status(201).json({
+      listingId: body.listingId,
+      tokenId: (args.tokenId as bigint).toString(),
+      buyerAddress: buyerWallet.address,
+      sellerAddress: args.seller as string,
+      amount: Number(args.amount),
+      totalPrice: (args.totalPrice as bigint).toString(),
+      ngoAmount: (args.ngoAmount as bigint).toString(),
+      platformAmount: (args.platformAmount as bigint).toString(),
+      communityAmount: (args.communityAmount as bigint).toString(),
+      txHash: receipt.hash,
+    });
+  })
+);
+
+/** Purchase history for one buyer, merged with project details, most recent first. */
+marketplaceRouter.get(
+  "/purchases/:buyerAddress",
+  asyncHandler(async (req, res) => {
+    let buyerAddress: string;
+    try {
+      buyerAddress = ethers.getAddress(req.params.buyerAddress);
+    } catch {
+      res.status(400).json({ error: "buyerAddress must be a valid Ethereum address" });
+      return;
+    }
+
+    const purchases = await prisma.marketplacePurchase.findMany({
+      where: { buyerAddress },
+      orderBy: { purchasedAt: "desc" },
+    });
+
+    const projects = await prisma.onChainProject.findMany({
+      where: { projectId: { in: [...new Set(purchases.map((purchase) => purchase.projectId))] } },
+    });
+    const projectsById = new Map(projects.map((project) => [project.projectId, project]));
+
+    res.json({
+      purchases: purchases.map((purchase) => {
+        const project = projectsById.get(purchase.projectId);
+        return {
+          listingId: purchase.listingId,
+          tokenId: purchase.tokenId,
+          projectId: purchase.projectId,
+          vintage: purchase.vintage,
+          sellerAddress: purchase.sellerAddress,
+          amount: purchase.amount,
+          totalPrice: purchase.totalPrice,
+          ngoAmount: purchase.ngoAmount,
+          platformAmount: purchase.platformAmount,
+          communityAmount: purchase.communityAmount,
+          txHash: purchase.txHash,
+          purchasedAt: purchase.purchasedAt,
           project: project ? { projectId: project.projectId, name: project.name, ecosystem: project.ecosystem } : null,
         };
       }),
