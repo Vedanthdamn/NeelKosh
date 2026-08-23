@@ -189,7 +189,8 @@ export async function fetchCreditHistory(tokenId: string): Promise<CreditHistory
 }
 
 export async function registerProject(input: RegisterProjectInput) {
-  return postJson<ProjectSummary & { projectId: number; txHash: string }>("/api/projects", input);
+  // Response shape matches ProjectSummary exactly (projectId and registrationTxHash included).
+  return postJson<ProjectSummary>("/api/projects", input);
 }
 
 /**
