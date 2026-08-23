@@ -16,6 +16,95 @@ import { verifyPhotoSubmission, type PhotoVerificationResult } from "../services
 
 export const mrvRouter = Router();
 
+/** Shape shared by every "read one or more MRV submissions" endpoint below — the queue list,
+ *  the queue detail page, and a verifier's decision history all want the same merged view. */
+interface SubmissionDetail {
+  submissionId: number;
+  projectId: number;
+  vintage: number;
+  tonnesCO2: number;
+  methodology: string;
+  supportingDataRef: string;
+  dataHash: string;
+  submittedByAddress: string;
+  submittedAt: Date;
+  submitTxHash: string;
+  status: string;
+  verifierAddress: string | null;
+  verifiedAt: Date | null;
+  verifyTxHash: string | null;
+  tokenId: string | null;
+  mintTxHash: string | null;
+  photoHash: string | null;
+  photoVerification: PhotoVerificationResult | null;
+  project: { projectId: number; name: string; ecosystem: string; implementerAddress: string; boundary: LatLng[] } | null;
+}
+
+function serializeSubmission(
+  report: {
+    submissionId: number;
+    projectId: number;
+    vintage: number;
+    tonnesCO2: number;
+    methodology: string;
+    supportingDataRef: string;
+    dataHash: string;
+    submittedByAddress: string;
+    submittedAt: Date;
+    submitTxHash: string;
+    status: string;
+    verifierAddress: string | null;
+    verifiedAt: Date | null;
+    verifyTxHash: string | null;
+    tokenId: string | null;
+    mintTxHash: string | null;
+    photoHash: string | null;
+    photoVerification: string | null;
+  },
+  project: { projectId: number; name: string; ecosystem: string; implementerAddress: string; boundary: string } | null
+): SubmissionDetail {
+  return {
+    submissionId: report.submissionId,
+    projectId: report.projectId,
+    vintage: report.vintage,
+    tonnesCO2: report.tonnesCO2,
+    methodology: report.methodology,
+    supportingDataRef: report.supportingDataRef,
+    dataHash: report.dataHash,
+    submittedByAddress: report.submittedByAddress,
+    submittedAt: report.submittedAt,
+    submitTxHash: report.submitTxHash,
+    status: report.status,
+    verifierAddress: report.verifierAddress,
+    verifiedAt: report.verifiedAt,
+    verifyTxHash: report.verifyTxHash,
+    tokenId: report.tokenId,
+    mintTxHash: report.mintTxHash,
+    photoHash: report.photoHash,
+    photoVerification: parseJsonField<PhotoVerificationResult | null>(report.photoVerification, null),
+    project: project
+      ? {
+          projectId: project.projectId,
+          name: project.name,
+          ecosystem: project.ecosystem,
+          implementerAddress: project.implementerAddress,
+          boundary: parseJsonField<LatLng[]>(project.boundary, []),
+        }
+      : null,
+  };
+}
+
+/** Merges a batch of MrvReport rows with their projects in one query each, not N+1. */
+async function serializeSubmissions(
+  reports: Parameters<typeof serializeSubmission>[0][]
+): Promise<SubmissionDetail[]> {
+  const projects = await prisma.onChainProject.findMany({
+    where: { projectId: { in: [...new Set(reports.map((r) => r.projectId))] } },
+  });
+  const projectsById = new Map(projects.map((p) => [p.projectId, p]));
+  return reports.map((report) => serializeSubmission(report, projectsById.get(report.projectId) ?? null));
+}
+
 // Memory storage, not disk: the photo only needs to exist long enough to forward to mrv-engine
 // (see services/photoVerification.ts) and compute a hash from — this backend doesn't persist
 // the photo itself anywhere. That's a real prototype-scope limit, not an oversight: a production
@@ -48,6 +137,42 @@ const submitMrvSchema = z.object({
     }
   }, z.record(z.unknown()).default({})),
 });
+
+/**
+ * The verifier's queue: every submission still awaiting a decision, oldest first. Gated to the
+ * VERIFIER role — this is a worklist for accredited verifiers, not a public listing (unlike
+ * GET /api/projects, which anyone can browse) — though note it's an API-layer gate only, same
+ * caveat as everywhere else in this file: the actual approve/reject transactions are indepen-
+ * dently restricted on chain regardless of who reaches this endpoint.
+ */
+mrvRouter.get(
+  "/pending",
+  requireRole(["VERIFIER"]),
+  asyncHandler(async (_req, res) => {
+    const reports = await prisma.mrvReport.findMany({
+      where: { status: "Pending" },
+      orderBy: { submittedAt: "asc" },
+    });
+    res.json({ submissions: await serializeSubmissions(reports) });
+  })
+);
+
+/** One verifier's decision history — everything they've already approved or rejected. */
+mrvRouter.get(
+  "/decided/:verifierAddress",
+  requireRole(["VERIFIER"]),
+  asyncHandler(async (req, res) => {
+    if (!ethers.isAddress(req.params.verifierAddress)) {
+      res.status(400).json({ error: "verifierAddress must be a valid Ethereum address" });
+      return;
+    }
+    const reports = await prisma.mrvReport.findMany({
+      where: { verifierAddress: ethers.getAddress(req.params.verifierAddress), status: { not: "Pending" } },
+      orderBy: { verifiedAt: "desc" },
+    });
+    res.json({ submissions: await serializeSubmissions(reports) });
+  })
+);
 
 /**
  * Files an MRV claim: hashes the full report, stores it verbatim, and calls
@@ -218,5 +343,32 @@ mrvRouter.post(
 
     const result = await runOracleVerification(submissionId);
     res.json(result);
+  })
+);
+
+/**
+ * One submission's full detail, regardless of status — the queue detail page's data source.
+ * Deliberately not restricted to Pending like /pending is: a verifier following a link to a
+ * submission they already decided (from /decided, or a stale bookmark) should still see it, not
+ * hit a 404 the moment it leaves the queue.
+ */
+mrvRouter.get(
+  "/:submissionId",
+  requireRole(["VERIFIER"]),
+  asyncHandler(async (req, res) => {
+    const submissionId = Number(req.params.submissionId);
+    if (!Number.isInteger(submissionId) || submissionId <= 0) {
+      res.status(400).json({ error: "submissionId must be a positive integer" });
+      return;
+    }
+
+    const report = await prisma.mrvReport.findUnique({ where: { submissionId } });
+    if (!report) {
+      res.status(404).json({ error: `No MRV submission ${submissionId}` });
+      return;
+    }
+
+    const project = await prisma.onChainProject.findUnique({ where: { projectId: report.projectId } });
+    res.json(serializeSubmission(report, project));
   })
 );

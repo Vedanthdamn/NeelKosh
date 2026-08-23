@@ -2,7 +2,37 @@
 // function here mirrors one backend endpoint; see backend/src/routes/*.ts for the source of
 // truth these types are kept in sync with.
 
+import type { PhotoVerificationResult } from "./photo";
+
 export type RoleName = "NGO" | "VERIFIER" | "BUYER" | "ADMIN";
+export type SubmissionStatus = "Pending" | "Approved" | "Rejected" | "Issued";
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+export interface SubmissionDetail {
+  submissionId: number;
+  projectId: number;
+  vintage: number;
+  tonnesCO2: number;
+  methodology: string;
+  supportingDataRef: string;
+  dataHash: string;
+  submittedByAddress: string;
+  submittedAt: string;
+  submitTxHash: string;
+  status: SubmissionStatus;
+  verifierAddress: string | null;
+  verifiedAt: string | null;
+  verifyTxHash: string | null;
+  tokenId: string | null;
+  mintTxHash: string | null;
+  photoHash: string | null;
+  photoVerification: PhotoVerificationResult | null;
+  project: { projectId: number; name: string; ecosystem: string; implementerAddress: string; boundary: LatLng[] } | null;
+}
 
 export interface SessionUser {
   id: number;
@@ -60,4 +90,26 @@ export async function verifySignature(
   signature: string
 ): Promise<{ token: string; registered: boolean; user: SessionUser | null }> {
   return postJson("/api/auth/verify", { walletAddress, signature });
+}
+
+/** The verifier's queue: every submission still awaiting a decision, oldest first. */
+export async function fetchPendingSubmissions(token: string): Promise<SubmissionDetail[]> {
+  const data = await getJson<{ submissions: SubmissionDetail[] }>("/api/mrv/pending", token);
+  return data.submissions;
+}
+
+/** One submission's full detail, regardless of status — powers the queue detail page. */
+export async function fetchSubmission(submissionId: number | string, token: string): Promise<SubmissionDetail | null> {
+  try {
+    return await getJson<SubmissionDetail>(`/api/mrv/${submissionId}`, token);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/** A verifier's own decision history — everything they've already approved or rejected. */
+export async function fetchDecidedSubmissions(verifierAddress: string, token: string): Promise<SubmissionDetail[]> {
+  const data = await getJson<{ submissions: SubmissionDetail[] }>(`/api/mrv/decided/${verifierAddress}`, token);
+  return data.submissions;
 }
