@@ -43,7 +43,7 @@ npm install
 npx hardhat test
 ```
 
-Deploy to a local node:
+Deploy to a local node and seed it with demo data — two terminals:
 
 ```bash
 npx hardhat node
@@ -51,9 +51,20 @@ npx hardhat node
 
 ```bash
 npm run deploy:local
+npm run seed:local
 ```
 
-Deployed addresses are written to `deployments/<network>.json`.
+`deploy-local.ts` assigns the registrar, verifier and oracle roles to three of Hardhat's default
+funded accounts (not the deployer), so the demo exercises the same access-control paths a real
+deployment would. `seed-demo-data.ts` then registers four real Indian mangrove restoration
+sites (Sundarbans, Pichavaram, Bhitarkanika, Gulf of Kutch), submits and approves MRV claims for
+one or two reporting periods each, and mints the resulting credits — so the dashboard has data
+to show instead of an empty state. Its `dataHash` values are hashes of placeholder strings, not
+of any real MRV report; there is no off-chain verification pipeline behind this demo data.
+
+Both scripts write to `../shared/contract-addresses.json` (keyed by network name) and
+`../shared/abis/*.json`, at the repo root, so the backend and frontend can read deployed
+addresses and ABIs without manual copying.
 
 For Polygon Amoy, copy `.env.example` to `.env`, set `DEPLOYER_PRIVATE_KEY`, then:
 
@@ -61,8 +72,8 @@ For Polygon Amoy, copy `.env.example` to `.env`, set `DEPLOYER_PRIVATE_KEY`, the
 npm run deploy:amoy
 ```
 
-`ORACLE_ADDRESS`, `VERIFIER_ADDRESS` and `REGISTRAR_ADDRESS` default to the deployer so a local
-chain is demo-ready in one command. Set them explicitly for any shared network.
+`ORACLE_ADDRESS`, `VERIFIER_ADDRESS` and `REGISTRAR_ADDRESS` default to the deployer so a demo
+deploy needs no extra setup. Set them explicitly for anything beyond a demo.
 
 ## Prototype scope
 
