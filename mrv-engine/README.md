@@ -40,13 +40,13 @@ pytest -v
 API server:
 
 ```bash
-uvicorn mrv_engine.api:app --reload --port 8000
+uvicorn mrv_engine.api:app --reload --port 8088
 ```
 
-Interactive docs at `http://localhost:8000/docs`. Example call:
+Interactive docs at `http://localhost:8088/docs`. Example call:
 
 ```bash
-curl -X POST http://localhost:8000/calculate \
+curl -X POST http://localhost:8088/calculate \
   -H "Content-Type: application/json" \
   -d '{"project_id": "sundarbans-wb-1", "area_hectares": 240, "species": "Rhizophora", "reporting_period": 8}'
 ```

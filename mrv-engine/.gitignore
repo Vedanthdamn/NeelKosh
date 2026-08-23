@@ -4,3 +4,8 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 build/
+
+# Not used today (no secrets in this service), but ignored defensively.
+.env
+.env.*
+!.env.example
