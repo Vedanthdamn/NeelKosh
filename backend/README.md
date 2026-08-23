@@ -43,6 +43,11 @@ defaults would be meaningless on a funded network.
 | `POST` | `/api/mrv/:submissionId/verify` | The oracle step: approve, then mint | `VERIFIER` role |
 | `POST` | `/api/credits/:tokenId/retire` | Burn credits with a stated reason | — |
 | `GET` | `/api/credits/:tokenId/history` | Full provenance for a credit batch | — |
+| `GET` | `/api/marketplace/listings` | Active, still-stocked listings merged with project details | — |
+| `POST` | `/api/marketplace/listings` | List a credit batch for sale | `NGO` role, project's own implementer |
+| `POST` | `/api/marketplace/purchase` | Buy some or all of a listing | `BUYER` role |
+| `POST` | `/api/marketplace/faucet` | Claim 10,000 NKR (SimStablecoin), once per 24h | `BUYER` role |
+| `GET` | `/api/marketplace/purchases/:buyerAddress` | Purchase history for one buyer | — |
 
 See [`src/routes/auth.ts`](src/routes/auth.ts) for the Sign-In With Ethereum flow and
 [`src/middleware/auth.ts`](src/middleware/auth.ts) for `requireAuth`/`requireRole`. Roles: NGO,
@@ -82,14 +87,46 @@ in explicitly, rather than relying on mrv-engine's own in-memory fallback store 
 mrv-engine's photo endpoints are independently testable, not for production use — see that
 service's own docs).
 
+## Marketplace
+
+`POST /api/marketplace/listings` is gated to the project's own implementer, not just any `NGO` —
+`requireRole` only proves "an NGO," so the route separately checks the caller against
+`ProjectRegistry`'s cached implementer address. It also grants `Marketplace`'s ERC-1155 escrow
+approval (`creditToken.setApprovalForAll`) the first time on the seller's behalf, since this
+backend already holds their key for the demo.
+
+`POST /api/marketplace/purchase` reads the listing straight from the chain, not the cache, before
+acting — a money-moving call should check the same authoritative state `buyCredits` itself will
+check. It also pre-checks the buyer's stablecoin balance and `Marketplace` allowance itself and
+fails with a specific "you need N more NKR" / "approve at least N NKR" message rather than
+propagating `buyCredits`'s raw revert. Unlike the seller's ERC-1155 approval above, this
+deliberately does **not** auto-approve the ERC-20 spend on the buyer's behalf — an allowance is
+consent to a specific amount, worth surfacing rather than silently granting, even though this
+backend holds the buyer's demo key too. The exact 3-way split recorded is read back off the
+`CreditsPurchased` event the transaction itself emitted, not recomputed from the marketplace
+contract's current split percentages — those can change later via `setSplitBps`, and a settled
+purchase keeps the split it actually paid at.
+
+`GET /api/marketplace/listings` and the purchase history endpoint are cache reads, backed by two
+new tables (`MarketplaceListing`, `MarketplacePurchase`) kept in sync by `src/services/eventSync.ts`
+from `CreditsListed`, `ListingCancelled` and `CreditsPurchased`. Event-sync, not the routes'
+write-through inserts, is the real source of truth here — a listing or a purchase can happen
+directly on chain without going through this backend at all (a buyer connecting their own wallet
+straight to `Marketplace` is exactly what a real, non-demo purchase looks like), the same way
+`ProjectRegistered` already is for the project cache. Verified live: a purchase made by a wallet
+outside this backend's buyer pool, calling `Marketplace` directly and never touching
+`POST /api/marketplace/purchase`, still shows up correctly in purchase history and correctly
+decrements the listing's remaining amount, purely from the event-sync listener; a full backfill
+from block zero after wiping SQLite reproduces the exact same rows with no duplicates.
+
 ## Prototype scope
 
-Wallets for the registrar, verifier, oracle and a fixed pool of implementer (NGO) addresses are
-held server-side in this process. That is a demo affordance. In production the verifier and
-oracle keys belong in a KMS or HSM, and implementer transactions (`submitForVerification`,
-`retireCredits`) would be signed client-side by the organisation's own wallet — this backend
-would never hold that key. Endpoints refuse rather than improvise when asked to act for an
-address it holds no key for.
+Wallets for the registrar, verifier, oracle and fixed pools of implementer (NGO) and buyer
+addresses are held server-side in this process. That is a demo affordance. In production the
+verifier and oracle keys belong in a KMS or HSM, and implementer/buyer transactions
+(`submitForVerification`, `retireCredits`, `listCredits`, `buyCredits`, `claimFaucet`) would be
+signed client-side by each party's own wallet — this backend would never hold that key. Endpoints
+refuse rather than improvise when asked to act for an address it holds no key for.
 
 On-chain state fully rebuilds from the event log if SQLite is lost. Off-chain data — project
 descriptions, photos, and full MRV report bodies — does not; it exists only in SQLite. A

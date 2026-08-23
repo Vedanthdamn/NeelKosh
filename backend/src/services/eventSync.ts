@@ -263,6 +263,51 @@ async function handleListingCancelled(log: ethers.Log) {
   });
 }
 
+/**
+ * A purchase can happen without going through routes/marketplace.ts's write-through the same
+ * way a listing can — a buyer connecting their own wallet directly to Marketplace, bypassing
+ * this backend's buyer-wallet pool entirely, is exactly what a real (non-demo) purchase would
+ * look like. This is the authoritative path for MarketplacePurchase, upserted by (txHash,
+ * logIndex) so a replayed range can only overwrite a row with the same facts, never duplicate
+ * it. It also re-reads the listing's remaining amount from chain rather than trusting event math
+ * to derive it — same reasoning as handleCreditsMinted reading totalMinted back from
+ * CarbonCreditToken instead of accumulating mint amounts itself.
+ */
+async function handleCreditsPurchased(log: ethers.Log) {
+  const parsed = marketplace.interface.parseLog(log);
+  if (!parsed) return;
+
+  const listingId = Number(parsed.args.listingId);
+  const [projectId, vintage]: [bigint, bigint] = await carbonCreditToken.decodeTokenId(parsed.args.tokenId);
+
+  await prisma.marketplacePurchase.upsert({
+    where: { txHash_logIndex: { txHash: log.transactionHash, logIndex: log.index } },
+    create: {
+      listingId,
+      tokenId: (parsed.args.tokenId as bigint).toString(),
+      projectId: Number(projectId),
+      vintage: Number(vintage),
+      buyerAddress: parsed.args.buyer,
+      sellerAddress: parsed.args.seller,
+      amount: Number(parsed.args.amount),
+      totalPrice: (parsed.args.totalPrice as bigint).toString(),
+      ngoAmount: (parsed.args.ngoAmount as bigint).toString(),
+      platformAmount: (parsed.args.platformAmount as bigint).toString(),
+      communityAmount: (parsed.args.communityAmount as bigint).toString(),
+      txHash: log.transactionHash,
+      logIndex: log.index,
+      purchasedAt: await blockTimestamp(log.blockNumber),
+    },
+    update: {},
+  });
+
+  const listing = await marketplace.getListing(listingId);
+  await prisma.marketplaceListing.updateMany({
+    where: { listingId },
+    data: { amount: Number(listing.amount), active: listing.active },
+  });
+}
+
 type LogHandler = (log: ethers.Log) => Promise<void>;
 
 interface WatchedEvent {
@@ -283,6 +328,7 @@ function watchedEvents(): WatchedEvent[] {
     { contract: carbonCreditToken, eventName: "TransferSingle", handler: handleTransferSingle },
     { contract: marketplace, eventName: "CreditsListed", handler: handleCreditsListed },
     { contract: marketplace, eventName: "ListingCancelled", handler: handleListingCancelled },
+    { contract: marketplace, eventName: "CreditsPurchased", handler: handleCreditsPurchased },
   ];
 }
 
