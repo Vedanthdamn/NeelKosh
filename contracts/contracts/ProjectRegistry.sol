@@ -2,13 +2,14 @@
 pragma solidity 0.8.24;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IProjectRegistry} from "./interfaces/IProjectRegistry.sol";
 
 /// @title ProjectRegistry
 /// @notice Canonical on-chain list of blue carbon restoration sites in the NeelKosh registry.
 /// @dev Everything downstream (verification submissions, credit issuance) keys off a projectId
 ///      minted here, so this contract is the single source of truth for "does this site exist,
 ///      who runs it, and is it currently allowed to generate credits".
-contract ProjectRegistry is AccessControl {
+contract ProjectRegistry is IProjectRegistry, AccessControl {
     /// @notice Role permitted to onboard new projects and change their status.
     /// @dev Held by NCCR-equivalent registry staff, not by the implementing organisations
     ///      themselves, so a project cannot self-onboard or un-suspend itself.

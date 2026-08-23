@@ -10,6 +10,9 @@ module.exports = {
     version: "0.8.24",
     settings: {
       optimizer: { enabled: true, runs: 200 },
+      // OpenZeppelin v5 uses mcopy in Arrays.sol, which needs Cancun. Both the Hardhat
+      // network and Polygon Amoy are post-Cancun, so this costs no compatibility.
+      evmVersion: "cancun",
     },
   },
   defaultNetwork: "hardhat",
