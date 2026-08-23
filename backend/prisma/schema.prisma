@@ -15,6 +15,24 @@ generator client {
   provider = "prisma-client-js"
 }
 
+/// An off-chain identity for a wallet address. Authentication proves control of the wallet
+/// (see routes/auth.ts's Sign-In With Ethereum flow); this row is what turns "a wallet signed
+/// something" into "this NGO/verifier/buyer signed something." role is a plain String, not a
+/// Prisma enum, matching every other status-like field in this schema (ecosystem, status above)
+/// — SQLite has no native enum type for Prisma to map onto, so validity is enforced in the
+/// application layer (see utils/roles.ts) rather than the database.
+model User {
+  id               Int      @id @default(autoincrement())
+  /// Always stored lowercased — Ethereum addresses are case-insensitive on chain, and comparing
+  /// two differently-checksummed strings for the same address should never produce a false
+  /// mismatch. Checksum for display at the application layer, not in storage.
+  walletAddress    String   @unique
+  /// NGO | VERIFIER | BUYER | ADMIN
+  role             String
+  organizationName String?
+  createdAt        DateTime @default(now())
+}
+
 /// Off-chain descriptive content for a project. Has no on-chain equivalent — this is exactly
 /// the kind of thing a registry keeps off-chain because it's editorial, not evidentiary.
 model ProjectMetadata {
