@@ -322,6 +322,61 @@ marketplaceRouter.post(
   })
 );
 
+/**
+ * Claims SimStablecoin's faucet for the authenticated buyer's server-held wallet. BUYER-only:
+ * the faucet exists to fund purchases, so gating it the same way as purchase itself keeps "who
+ * can get demo currency" and "who can spend it" the same population, rather than letting any
+ * signed-in wallet mint NKR regardless of role.
+ *
+ * Pre-checks the cooldown itself rather than letting claimFaucet revert, for the same reason
+ * purchase pre-checks allowance: FaucetCooldownActive's raw revert doesn't say how long until
+ * the next claim is actually allowed.
+ */
+marketplaceRouter.post(
+  "/faucet",
+  requireRole(["BUYER"]),
+  asyncHandler(async (req, res) => {
+    const buyerWallet = findBuyerWallet(req.user!.walletAddress);
+    if (!buyerWallet) {
+      res.status(400).json({
+        error: `This backend does not hold a key for buyer ${req.user!.walletAddress}. Claim the faucet from that wallet directly.`,
+      });
+      return;
+    }
+
+    const [lastClaim, faucetAmount, faucetCooldown]: [bigint, bigint, bigint] = await Promise.all([
+      simStablecoin.lastFaucetClaim(buyerWallet.address),
+      simStablecoin.FAUCET_AMOUNT(),
+      simStablecoin.FAUCET_COOLDOWN(),
+    ]);
+    if (lastClaim > 0n) {
+      const availableAt = lastClaim + faucetCooldown;
+      const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+      if (nowSeconds < availableAt) {
+        res.status(400).json({
+          error: `Faucet already claimed for this wallet — try again after ${new Date(Number(availableAt) * 1000).toISOString()}.`,
+          availableAt: new Date(Number(availableAt) * 1000).toISOString(),
+        });
+        return;
+      }
+    }
+
+    logStage("MARKETPLACE", `Buyer ${buyerWallet.address} claiming faucet`);
+
+    const stablecoinAsBuyer = simStablecoin.connect(buyerWallet) as ethers.Contract;
+    const tx = await stablecoinAsBuyer.claimFaucet();
+    const receipt = await tx.wait();
+
+    logStage("MARKETPLACE", "Faucet claimed on chain", { txHash: receipt.hash, amount: faucetAmount.toString() });
+
+    res.status(201).json({
+      buyerAddress: buyerWallet.address,
+      amount: faucetAmount.toString(),
+      txHash: receipt.hash,
+    });
+  })
+);
+
 /** Purchase history for one buyer, merged with project details, most recent first. */
 marketplaceRouter.get(
   "/purchases/:buyerAddress",
