@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  /* Deep water — the open-ocean register. Landing page and the verify "trust payoff" page. */
+  --color-water-950: #050f0d;
+  --color-water-900: #0b211d;
+  --color-water-800: #123a33;
+  --color-water-700: #1a4f46;
+  --color-water-600: #235f54;
+
+  /* Teal — interactive accent on dark surfaces, and the working-page link color. */
+  --color-teal-400: #4ec3ac;
+  --color-teal-500: #2f9884;
+  --color-teal-600: #227b6b;
+
+  /* Sand — the one warm accent thread across both registers. CTAs and highlights only. */
+  --color-sand-200: #f3e2bd;
+  --color-sand-300: #ecd19f;
+  --color-sand-500: #d9a756;
+  --color-sand-600: #bd8a3f;
+  --color-sand-700: #a97a34;
+
+  /* Mudflat — the shore register. Working pages: projects, detail, register. */
+  --color-mudflat-50: #f8f2e3;
+  --color-mudflat-100: #f0e6cd;
+  --color-mudflat-200: #e4d3ab;
+
+  /* Ink and foam — text colors for the mudflat and water registers respectively. */
+  --color-ink-900: #12211d;
+  --color-ink-700: #2c3d38;
+  --color-ink-500: #56675f;
+  --color-foam-100: #e3efeb;
+  --color-foam-200: #cfe3dc;
+  --color-foam-400: #93b3a8;
+
+  /* Coral — reserved exclusively for suspended/warning states. Never used as an accent. */
+  --color-coral-500: #c1613f;
+  --color-coral-600: #a84f30;
+
+  --font-display: var(--font-fraunces);
+  --font-body: var(--font-plex-sans);
+  --font-data: var(--font-plex-mono);
+
+  --animate-grow-root: grow-root 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes grow-root {
+  from {
+    stroke-dashoffset: var(--root-length, 1200);
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: var(--color-sand-500);
+  color: var(--color-water-950);
+}
+
+/* Visible focus ring everywhere, on both registers. */
+:focus-visible {
+  outline: 2px solid var(--color-sand-500);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Leaflet ships its own CSS reset assumptions; make sure map tiles paint edge-to-edge. */
+.leaflet-container {
+  font-family: var(--font-body);
+  background: var(--color-mudflat-100);
+}
