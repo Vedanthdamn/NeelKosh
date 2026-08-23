@@ -44,6 +44,7 @@ wait_for_port() {
 
 preflight() {
   local missing=0
+  [ -d "$ROOT_DIR/node_modules" ] || { echo "node_modules missing at repo root — run: npm install"; missing=1; }
   [ -d "$ROOT_DIR/contracts/node_modules" ] || { echo "contracts/node_modules missing — run: cd contracts && npm install"; missing=1; }
   [ -d "$ROOT_DIR/backend/node_modules" ] || { echo "backend/node_modules missing — run: cd backend && npm install"; missing=1; }
   [ -d "$ROOT_DIR/frontend/node_modules" ] || { echo "frontend/node_modules missing — run: cd frontend && npm install"; missing=1; }

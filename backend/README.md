@@ -31,15 +31,23 @@ defaults would be meaningless on a funded network.
 
 ## Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/projects` | Register a project on chain, store off-chain metadata |
-| `GET` | `/api/projects` | List projects (from cache) merged with metadata |
-| `GET` | `/api/projects/:id` | Registration, reporting periods, credit totals |
-| `POST` | `/api/mrv/submit` | Hash + store an MRV report, submit the hash on chain |
-| `POST` | `/api/mrv/:submissionId/verify` | The oracle step: approve, then mint |
-| `POST` | `/api/credits/:tokenId/retire` | Burn credits with a stated reason |
-| `GET` | `/api/credits/:tokenId/history` | Full provenance for a credit batch |
+| Method | Path | Purpose | Requires |
+| --- | --- | --- | --- |
+| `POST` | `/api/auth/nonce` | Issue a one-time message for a wallet to sign | — |
+| `POST` | `/api/auth/verify` | Verify the signature, issue a session JWT | — |
+| `POST` | `/api/auth/register` | First-time wallet picks a role and org name | valid session token |
+| `POST` | `/api/projects` | Register a project on chain, store off-chain metadata | `NGO` role |
+| `GET` | `/api/projects` | List projects (from cache) merged with metadata | — |
+| `GET` | `/api/projects/:id` | Registration, reporting periods, credit totals | — |
+| `POST` | `/api/mrv/submit` | Hash + store an MRV report, submit the hash on chain | — |
+| `POST` | `/api/mrv/:submissionId/verify` | The oracle step: approve, then mint | `VERIFIER` role |
+| `POST` | `/api/credits/:tokenId/retire` | Burn credits with a stated reason | — |
+| `GET` | `/api/credits/:tokenId/history` | Full provenance for a credit batch | — |
+
+See [`src/routes/auth.ts`](src/routes/auth.ts) for the Sign-In With Ethereum flow and
+[`src/middleware/auth.ts`](src/middleware/auth.ts) for `requireAuth`/`requireRole`. Roles: NGO,
+VERIFIER, BUYER, ADMIN — ADMIN is not self-registerable (see
+[`src/utils/roles.ts`](src/utils/roles.ts)).
 
 ## What "verified" means here
 

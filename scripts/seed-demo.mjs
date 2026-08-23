@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Seeds realistic demo data through the real pipeline: backend API -> mrv-engine -> backend MRV
-// submit/verify -> retire. This is what makes the frontend's dashboard, charts and verify page
-// non-empty for a demo.
+// Seeds realistic demo data through the real pipeline: backend auth -> backend API -> mrv-engine
+// -> backend MRV submit/verify -> retire. This is what makes the frontend's dashboard, charts
+// and verify page non-empty for a demo, and what puts real logged-in accounts behind the
+// role-gated endpoints (POST /api/projects requires NGO, POST /api/mrv/:id/verify requires
+// VERIFIER — see backend/src/routes/projects.ts and mrv.ts).
 //
 // Deliberately not contracts/scripts/seed-demo-data.ts, which writes straight to the contracts
 // via ethers and bypasses the backend entirely — fine for testing the contracts layer in
@@ -11,20 +13,70 @@
 //
 // Usage: node scripts/seed-demo.mjs
 // Env:   BACKEND_URL (default http://127.0.0.1:4000), MRV_URL (default http://127.0.0.1:8088)
+// Requires ethers at the repo root (npm install here) to sign the Sign-In With Ethereum
+// challenge for each demo account — see package.json.
+
+import { ethers } from "ethers";
 
 const BACKEND = process.env.BACKEND_URL || "http://127.0.0.1:4000";
 const MRV = process.env.MRV_URL || "http://127.0.0.1:8088";
 
-// These are Hardhat's well-known local test accounts #4-7 — the same "implementer" wallet pool
-// backend/src/config.ts defaults to on localhost. Registering a project with an implementer
-// address this backend doesn't hold a key for would make the MRV-submit step below fail (by
-// design — see backend/README.md's "Prototype scope" section).
-const IMPLEMENTERS = [
-  "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-  "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-  "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
-  "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955",
+/**
+ * Demo accounts, all Hardhat's well-known local test keys so anyone running this demo already
+ * knows every private key involved. Deliberately reuses wallets that already mean something
+ * elsewhere in the system rather than picking arbitrary fresh addresses:
+ *   - The two NGO wallets are accounts #4 and #5 — the same "implementer" wallet pool
+ *     backend/src/config.ts defaults to, and specifically the two this script's own PROJECTS
+ *     list below assigns as implementerAddress for the first two projects. Signing in as
+ *     "Sundarbans NGO" and then registering the Sundarbans project as that same wallet is the
+ *     point — it's the same organisation on both sides.
+ *   - The verifier wallet is account #2, the exact key backend/src/config.ts uses to sign
+ *     approveVerification on chain. The API-layer VERIFIER role and the on-chain VERIFIER_ROLE
+ *     end up describing the same real-world party for this demo, which is what makes "the
+ *     verifier logs in and approves a claim" a coherent story rather than two unrelated facts.
+ *   - The two buyer wallets (#8, #9) are fresh — nothing else in the system currently expects a
+ *     buyer's wallet to be any specific address.
+ */
+const DEMO_ACCOUNTS = [
+  {
+    label: "Sundarbans NGO",
+    role: "NGO",
+    organizationName: "Sundarbans Fishing Cooperative",
+    privateKey: "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a", // account #4
+  },
+  {
+    label: "Pichavaram NGO",
+    role: "NGO",
+    organizationName: "Tamil Nadu Coastal Restoration Trust",
+    privateKey: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba", // account #5
+  },
+  {
+    label: "Demo Verifier",
+    role: "VERIFIER",
+    organizationName: "Independent MRV Verification Services",
+    privateKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a", // account #2
+  },
+  {
+    label: "Demo Buyer — Corporate",
+    role: "BUYER",
+    organizationName: "GreenLeaf Corporation",
+    privateKey: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97", // account #8
+  },
+  {
+    label: "Demo Buyer — Individual",
+    role: "BUYER",
+    organizationName: "",
+    privateKey: "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6", // account #9
+  },
 ];
+
+// Every project's implementerAddress below is one of these two — the same two wallets logged in
+// as "Sundarbans NGO" and "Pichavaram NGO" above, each now also implementing a second project.
+// POST /api/projects requires the NGO role (backend/src/routes/projects.ts), so registering a
+// project means signing in as whichever demo account's wallet matches its implementer; keeping
+// every project's implementer within this fixed two-NGO pool is what makes that possible without
+// inventing more demo accounts than the task asks for.
+const IMPLEMENTERS = DEMO_ACCOUNTS.filter((a) => a.role === "NGO").map((a) => new ethers.Wallet(a.privateKey).address);
 
 // halfDeg tuned per project so the drawn boundary's real geometric area (shoelace formula,
 // computed independently by the frontend from the boundary alone) roughly matches the
@@ -84,7 +136,7 @@ const PROJECTS = [
     name: "Bhitarkanika Mangrove Restoration, Odisha",
     lat: 20.7191,
     lng: 86.899,
-    implementerAddress: IMPLEMENTERS[2],
+    implementerAddress: IMPLEMENTERS[0],
     species: "Sonneratia",
     areaHectares: 130,
     description:
@@ -97,7 +149,7 @@ const PROJECTS = [
     name: "Gulf of Kutch Mangrove Restoration, Gujarat",
     lat: 22.4707,
     lng: 69.1082,
-    implementerAddress: IMPLEMENTERS[3],
+    implementerAddress: IMPLEMENTERS[1],
     species: "Mixed",
     areaHectares: 60,
     description:
@@ -128,13 +180,11 @@ async function withRetries(fn, { attempts = 4, delayMs = 750 } = {}) {
   throw lastError;
 }
 
-async function postJson(url, body) {
+async function postJson(url, body, token) {
   return withRetries(async () => {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
     const data = await response.json();
     if (!response.ok) throw new Error(`${url} -> ${response.status}: ${JSON.stringify(data)}`);
     return data;
@@ -150,11 +200,50 @@ async function getJson(url) {
   });
 }
 
+/**
+ * Runs the full Sign-In With Ethereum flow for one demo account: request a nonce, sign it with
+ * the account's real private key, verify the signature, and register a User row if this wallet
+ * doesn't have one yet. Safe to call repeatedly — a second run just logs the same account back
+ * in (POST /api/auth/verify returns a fresh token for an already-registered wallet without
+ * erroring), which is what makes re-running this whole script against a backend that already has
+ * these accounts registered work without any special-casing.
+ */
+async function signIn(account) {
+  const wallet = new ethers.Wallet(account.privateKey);
+
+  const { message } = await postJson(`${BACKEND}/api/auth/nonce`, { walletAddress: wallet.address });
+  const signature = await wallet.signMessage(message);
+  const verified = await postJson(`${BACKEND}/api/auth/verify`, { walletAddress: wallet.address, signature });
+
+  if (verified.registered) {
+    return { wallet, token: verified.token, user: verified.user };
+  }
+
+  const registered = await postJson(
+    `${BACKEND}/api/auth/register`,
+    { role: account.role, organizationName: account.organizationName || undefined },
+    verified.token
+  );
+  return { wallet, token: registered.token, user: registered.user };
+}
+
 async function main() {
+  console.log("Signing in demo accounts...");
+  const tokensByAddress = new Map();
+  let verifierToken;
+  for (const account of DEMO_ACCOUNTS) {
+    const { wallet, token, user } = await signIn(account);
+    tokensByAddress.set(wallet.address.toLowerCase(), token);
+    if (account.role === "VERIFIER") verifierToken = token;
+    console.log(
+      `  ${user.role.padEnd(8)} ${(account.organizationName || account.label).padEnd(35)} ${wallet.address}`
+    );
+  }
+
   const existing = await getJson(`${BACKEND}/api/projects`);
   if (existing.projects.length > 0) {
     console.log(
-      `${BACKEND} already has ${existing.projects.length} project(s) registered — skipping seed.\n` +
+      `\n${BACKEND} already has ${existing.projects.length} project(s) registered — skipping project seed.\n` +
         "Reset the backend's SQLite DB and redeploy the contracts if you want a fresh demo dataset."
     );
     return;
@@ -163,14 +252,21 @@ async function main() {
   const results = [];
 
   for (const project of PROJECTS) {
-    const registered = await postJson(`${BACKEND}/api/projects`, {
-      name: project.name,
-      ecosystem: "Mangrove",
-      implementerAddress: project.implementerAddress,
-      boundary: squareBoundary(project.lat, project.lng, halfDegForHectares(project.areaHectares, project.lat)),
-      description: project.description,
-      story: project.story,
-    });
+    // Registration requires the NGO role (backend/src/routes/projects.ts) — sign in as whichever
+    // demo account's wallet matches this project's implementer.
+    const ngoToken = tokensByAddress.get(project.implementerAddress.toLowerCase());
+    const registered = await postJson(
+      `${BACKEND}/api/projects`,
+      {
+        name: project.name,
+        ecosystem: "Mangrove",
+        implementerAddress: project.implementerAddress,
+        boundary: squareBoundary(project.lat, project.lng, halfDegForHectares(project.areaHectares, project.lat)),
+        description: project.description,
+        story: project.story,
+      },
+      ngoToken
+    );
     console.log(`registered project ${registered.projectId}: ${project.name}`);
 
     const mintedTokenIds = [];
@@ -203,7 +299,7 @@ async function main() {
       });
       console.log(`  submitted vintage ${period.vintage}: ndvi=${calc.ndvi} tonnesCO2=${tonnesCO2} (submission ${submitted.submissionId})`);
 
-      const verified = await postJson(`${BACKEND}/api/mrv/${submitted.submissionId}/verify`, {});
+      const verified = await postJson(`${BACKEND}/api/mrv/${submitted.submissionId}/verify`, {}, verifierToken);
       console.log(`  minted token ${verified.tokenId} for vintage ${period.vintage}`);
       mintedTokenIds.push(verified.tokenId);
     }

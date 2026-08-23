@@ -83,6 +83,7 @@ stops all four. Per-service logs are written to `.demo-logs/` (gitignored).
 tells you what's missing, but doesn't install anything itself):
 
 ```bash
+npm install   # repo root — ethers, for scripts/seed-demo.mjs to sign in as each demo account
 (cd contracts && npm install)
 (cd backend && npm install)
 (cd frontend && npm install)
@@ -105,13 +106,15 @@ Each service's own README has network configuration for Polygon Amoy instead of 
 ### The user journey this supports
 
 1. **Register** a project — `/register` on the frontend, draws a boundary on a map, writes to
-   `ProjectRegistry`.
+   `ProjectRegistry`. Requires signing in as the NGO role (see "Wallet-based auth" below); the
+   frontend form doesn't do this sign-in yet, so it currently needs a token obtained separately
+   (`scripts/seed-demo.mjs` shows the full flow) — wiring the frontend up to it is follow-up work.
 2. **Submit MRV data** — `POST /api/mrv/submit` on the backend, fed by a reading from
    mrv-engine's `POST /calculate`. `scripts/seed-demo.mjs` does this for the seeded demo
    projects; there's no dedicated frontend form for it, since this prototype's frontend scope is
    the public registry and verification experience, not an operator console.
 3. **Verify** — `POST /api/mrv/:submissionId/verify`, the oracle step: approves as the verifier,
-   then mints as the oracle in the same call. See
+   then mints as the oracle in the same call. Requires signing in as the VERIFIER role. See
    [`backend/src/services/oracleBridge.ts`](backend/src/services/oracleBridge.ts) for what
    "verified" means here and what it doesn't.
 4. **View on the dashboard** — `/projects` and `/projects/:id` on the frontend, reading from the
@@ -120,6 +123,17 @@ Each service's own README has network configuration for Polygon Amoy instead of 
    permanently.
 6. **Verify lookup** — `/verify/:tokenId` on the frontend: a public page for checking any
    credit's complete chain of custody, no login required.
+
+### Wallet-based auth
+
+Three roles — NGO, VERIFIER, BUYER — plus ADMIN (not self-registerable; see
+[`backend/src/utils/roles.ts`](backend/src/utils/roles.ts)). No passwords: a wallet's signature
+over a one-time nonce is the credential, the standard Sign-In With Ethereum pattern.
+`POST /api/auth/nonce` issues a message to sign, `POST /api/auth/verify` recovers the signer and
+returns a session JWT, `POST /api/auth/register` lets a first-time wallet pick a role and
+organisation name. This is foundation work for a separate verifier portal later — the existing
+frontend doesn't drive this flow yet, only `scripts/seed-demo.mjs` does (5 demo accounts, all
+Hardhat's well-known local test keys, printed with their roles on every run).
 
 ## What's simulated, and what isn't
 

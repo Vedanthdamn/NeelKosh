@@ -1,0 +1,9 @@
+{
+  "name": "neelkosh-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dependencies for repo-root demo tooling (scripts/). Each service (contracts/, backend/, frontend/, mrv-engine/) manages its own dependencies separately — this is only for scripts that orchestrate across them.",
+  "dependencies": {
+    "ethers": "^6.13.4"
+  }
+}
