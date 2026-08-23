@@ -8,7 +8,7 @@ import { TopBar } from "@/components/TopBar";
 import { OverallFlagPill } from "@/components/FraudIndicators";
 import { locationSignal, duplicateSignal, plausibilitySignal } from "@/lib/photo";
 import { useSession } from "@/lib/auth";
-import { fetchSubmission, ApiError, type SubmissionDetail } from "@/lib/api";
+import { fetchSubmission, approveSubmission, rejectSubmission, ApiError, type SubmissionDetail } from "@/lib/api";
 import { formatDateTime, formatTonnes, truncateAddress } from "@/lib/format";
 
 const GeofenceMap = dynamic(() => import("@/components/GeofenceMap").then((m) => m.GeofenceMap), { ssr: false });
@@ -34,24 +34,54 @@ function Detail({ submissionId }: { submissionId: string }) {
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [showRejectPanel, setShowRejectPanel] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
-  useEffect(() => {
+  function load() {
     if (!session) return;
-    let cancelled = false;
     fetchSubmission(submissionId, session.token)
       .then((data) => {
-        if (cancelled) return;
         if (!data) setNotFound(true);
         else setSubmission(data);
       })
       .catch((err) => {
-        if (cancelled) return;
         setError(err instanceof ApiError ? err.message : "Could not load this submission.");
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [submissionId, session]);
+  }
+
+  useEffect(load, [submissionId, session]);
+
+  async function handleApprove() {
+    if (!session) return;
+    setDeciding(true);
+    setActionError(null);
+    try {
+      await approveSubmission(Number(submissionId), session.token);
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Approval failed.");
+    } finally {
+      setDeciding(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!session || !rejectReason.trim()) return;
+    setDeciding(true);
+    setActionError(null);
+    try {
+      await rejectSubmission(Number(submissionId), rejectReason.trim(), session.token);
+      setShowRejectPanel(false);
+      setRejectReason("");
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Rejection failed.");
+    } finally {
+      setDeciding(false);
+    }
+  }
 
   if (error) {
     return (
@@ -215,25 +245,101 @@ function Detail({ submissionId }: { submissionId: string }) {
         </section>
       </div>
 
-      <div className="mt-6 flex justify-end gap-3">
-        <button
-          type="button"
-          disabled
-          title="Wired up in the next commit"
-          className="rounded border border-signal-red-500/40 px-5 py-2.5 text-sm font-semibold text-signal-red-400 opacity-50"
-        >
-          Reject
-        </button>
-        <button
-          type="button"
-          disabled
-          title="Wired up in the next commit"
-          className="rounded bg-signal-green-500 px-5 py-2.5 text-sm font-semibold text-slate-950 opacity-50"
-        >
-          Approve
-        </button>
-      </div>
+      {actionError ? (
+        <p className="mt-6 rounded border border-signal-red-500/30 bg-signal-red-500/10 px-4 py-3 text-sm text-signal-red-400">
+          {actionError}
+        </p>
+      ) : null}
+
+      {submission.status === "Pending" ? (
+        <div className="mt-6">
+          {showRejectPanel ? (
+            <div className="rounded border border-signal-red-500/30 bg-slate-900 p-4">
+              <label className="text-xs font-medium text-slate-300">
+                Reason for rejection
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  rows={2}
+                  placeholder="What's wrong with this claim?"
+                  className="mt-1.5 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-accent-500"
+                />
+              </label>
+              <div className="mt-3 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRejectPanel(false);
+                    setRejectReason("");
+                  }}
+                  className="rounded border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReject}
+                  disabled={deciding || !rejectReason.trim()}
+                  className="rounded bg-signal-red-500 px-5 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deciding ? "Rejecting…" : "Confirm rejection"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowRejectPanel(true)}
+                disabled={deciding}
+                className="rounded border border-signal-red-500/40 px-5 py-2.5 text-sm font-semibold text-signal-red-400 hover:bg-signal-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={deciding}
+                className="rounded bg-signal-green-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-signal-green-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deciding ? "Approving…" : "Approve"}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <DecisionSummary submission={submission} />
+      )}
     </main>
+  );
+}
+
+function DecisionSummary({ submission }: { submission: SubmissionDetail }) {
+  if (submission.status === "Rejected") {
+    return (
+      <div className="mt-6 rounded border border-signal-red-500/30 bg-signal-red-500/10 p-4">
+        <p className="text-sm font-medium text-signal-red-400">Rejected</p>
+        {submission.rejectionReason ? (
+          <p className="mt-1 text-sm text-slate-300">&ldquo;{submission.rejectionReason}&rdquo;</p>
+        ) : null}
+        {submission.verifiedAt ? (
+          <p className="mt-2 text-xs text-slate-500">{formatDateTime(submission.verifiedAt)}</p>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-6 rounded border border-signal-green-500/30 bg-signal-green-500/10 p-4">
+      <p className="text-sm font-medium text-signal-green-400">
+        {submission.status === "Issued" ? "Approved — credits minted" : "Approved"}
+      </p>
+      {submission.tokenId ? (
+        <p className="font-data mt-1 text-xs text-slate-400">token {submission.tokenId}</p>
+      ) : null}
+      {submission.verifiedAt ? (
+        <p className="mt-2 text-xs text-slate-500">{formatDateTime(submission.verifiedAt)}</p>
+      ) : null}
+    </div>
   );
 }
 

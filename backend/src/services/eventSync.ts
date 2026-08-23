@@ -127,6 +127,7 @@ async function handleVerificationRejected(log: ethers.Log) {
       verifierAddress: parsed.args.verifier,
       verifiedAt: new Date(Number(parsed.args.rejectedAt) * 1000),
       verifyTxHash: log.transactionHash,
+      rejectionReason: parsed.args.reason,
     },
   });
 }

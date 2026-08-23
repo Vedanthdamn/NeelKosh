@@ -86,6 +86,9 @@ model MrvReport {
   verifierAddress      String?
   verifiedAt           DateTime?
   verifyTxHash         String?
+  /// Set only when status is Rejected — the verifier's stated reason, mirrored from
+  /// VerificationRegistry's VerificationRejected event (see rejectVerification on chain).
+  rejectionReason      String?
   tokenId              String?
   mintTxHash           String?
 

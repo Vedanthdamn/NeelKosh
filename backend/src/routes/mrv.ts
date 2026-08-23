@@ -3,8 +3,8 @@ import { ethers } from "ethers";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../db";
-import { verificationRegistry } from "../blockchain/contracts";
-import { findImplementerWallet } from "../blockchain/wallets";
+import { verificationRegistry, verificationRegistryAsVerifier } from "../blockchain/contracts";
+import { findImplementerWallet, verifierWallet } from "../blockchain/wallets";
 import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -33,6 +33,7 @@ interface SubmissionDetail {
   verifierAddress: string | null;
   verifiedAt: Date | null;
   verifyTxHash: string | null;
+  rejectionReason: string | null;
   tokenId: string | null;
   mintTxHash: string | null;
   photoHash: string | null;
@@ -56,6 +57,7 @@ function serializeSubmission(
     verifierAddress: string | null;
     verifiedAt: Date | null;
     verifyTxHash: string | null;
+    rejectionReason: string | null;
     tokenId: string | null;
     mintTxHash: string | null;
     photoHash: string | null;
@@ -78,6 +80,7 @@ function serializeSubmission(
     verifierAddress: report.verifierAddress,
     verifiedAt: report.verifiedAt,
     verifyTxHash: report.verifyTxHash,
+    rejectionReason: report.rejectionReason,
     tokenId: report.tokenId,
     mintTxHash: report.mintTxHash,
     photoHash: report.photoHash,
@@ -343,6 +346,71 @@ mrvRouter.post(
 
     const result = await runOracleVerification(submissionId);
     res.json(result);
+  })
+);
+
+const rejectSchema = z.object({
+  reason: z.string().min(1, "A rejection reason is required."),
+});
+
+/**
+ * Turns a pending claim down. Single transaction, unlike approve+mint — rejecting never touches
+ * CarbonCreditToken, so there's no oracle step and nothing to bridge. Signed by the same
+ * server-held verifier wallet approve uses; VerificationRegistry's own VERIFIER_ROLE would
+ * refuse this call from anyone else regardless of the requireRole gate below, same relationship
+ * as everywhere else in this file between the API-layer check and the on-chain one.
+ */
+mrvRouter.post(
+  "/:submissionId/reject",
+  requireRole(["VERIFIER"]),
+  validateBody(rejectSchema),
+  asyncHandler(async (req, res) => {
+    const submissionId = Number(req.params.submissionId);
+    if (!Number.isInteger(submissionId) || submissionId <= 0) {
+      res.status(400).json({ error: "submissionId must be a positive integer" });
+      return;
+    }
+    const { reason } = req.body as z.infer<typeof rejectSchema>;
+
+    const report = await prisma.mrvReport.findUnique({ where: { submissionId } });
+    if (!report) {
+      res.status(404).json({ error: `No MRV submission ${submissionId}` });
+      return;
+    }
+    if (report.status !== "Pending") {
+      res.status(400).json({ error: `Submission ${submissionId} is already ${report.status}, not Pending` });
+      return;
+    }
+
+    logStage("VERIFY", `Verifier ${verifierWallet.address} rejecting submission ${submissionId}`, { reason });
+
+    const tx = await verificationRegistryAsVerifier.rejectVerification(submissionId, reason);
+    const receipt = await tx.wait();
+
+    logStage("VERIFY", "Rejected on chain", { txHash: receipt.hash });
+
+    // Write-through cache; event-sync (services/eventSync.ts) reconciles this same row from the
+    // chain's own VerificationRejected event on its next pass.
+    const verifiedAt = new Date();
+    await prisma.mrvReport.update({
+      where: { submissionId },
+      data: {
+        status: "Rejected",
+        verifierAddress: verifierWallet.address,
+        verifiedAt,
+        verifyTxHash: receipt.hash,
+        rejectionReason: reason,
+      },
+    });
+
+    res.json({
+      submissionId,
+      status: "Rejected",
+      verifierAddress: verifierWallet.address,
+      verifiedAt,
+      verifyTxHash: receipt.hash,
+      rejectionReason: reason,
+    });
   })
 );
 

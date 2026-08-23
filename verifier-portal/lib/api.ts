@@ -27,6 +27,7 @@ export interface SubmissionDetail {
   verifierAddress: string | null;
   verifiedAt: string | null;
   verifyTxHash: string | null;
+  rejectionReason: string | null;
   tokenId: string | null;
   mintTxHash: string | null;
   photoHash: string | null;
@@ -112,4 +113,24 @@ export async function fetchSubmission(submissionId: number | string, token: stri
 export async function fetchDecidedSubmissions(verifierAddress: string, token: string): Promise<SubmissionDetail[]> {
   const data = await getJson<{ submissions: SubmissionDetail[] }>(`/api/mrv/decided/${verifierAddress}`, token);
   return data.submissions;
+}
+
+export interface ApproveResult {
+  submissionId: number;
+  projectId: number;
+  vintage: number;
+  tonnesCO2: string;
+  tokenId: string;
+  approveTxHash: string;
+  mintTxHash: string;
+}
+
+/** Approves a pending submission, which immediately mints the credits it unlocks. */
+export async function approveSubmission(submissionId: number, token: string): Promise<ApproveResult> {
+  return postJson(`/api/mrv/${submissionId}/verify`, {}, token);
+}
+
+/** Rejects a pending submission with a stated reason, freeing the period for resubmission. */
+export async function rejectSubmission(submissionId: number, reason: string, token: string): Promise<void> {
+  await postJson(`/api/mrv/${submissionId}/reject`, { reason }, token);
 }
