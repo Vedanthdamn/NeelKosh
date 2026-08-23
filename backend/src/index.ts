@@ -4,6 +4,7 @@ import { config } from "./config";
 import { prisma } from "./db";
 import { projectsRouter } from "./routes/projects";
 import { mrvRouter } from "./routes/mrv";
+import { creditsRouter } from "./routes/credits";
 import { errorHandler } from "./middleware/errorHandler";
 
 const app = express();
@@ -17,6 +18,7 @@ app.get("/health", async (_req, res) => {
 
 app.use("/api/projects", projectsRouter);
 app.use("/api/mrv", mrvRouter);
+app.use("/api/credits", creditsRouter);
 
 app.use(errorHandler);
 
