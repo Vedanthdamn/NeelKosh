@@ -1,11 +1,12 @@
 import type { LifecycleEvent } from "@/components/CreditLifecycleTable";
 import { CopyableCode } from "@/components/CopyableCode";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import { formatDateTime, formatNKR, formatNumber } from "@/lib/format";
 
 const KIND_LABEL: Record<LifecycleEvent["kind"], string> = {
   mint: "Issued",
   transfer: "Transferred",
   retirement: "Retired",
+  purchase: "Purchased",
 };
 
 /** Vertical chain-of-custody timeline for the verify page's dark register — the one place this deserves more presence than a flat table. */
@@ -42,6 +43,27 @@ export function CustodyTimeline({ events }: { events: LifecycleEvent[] }) {
               </div>
 
               {event.reason ? <p className="mt-1 text-sm text-foam-200">&ldquo;{event.reason}&rdquo;</p> : null}
+
+              {event.purchase ? (
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-water-700 bg-water-900 px-3 py-2.5 text-xs sm:grid-cols-4">
+                  <div>
+                    <p className="text-foam-400">Paid</p>
+                    <p className="font-data mt-0.5 text-foam-100">{formatNKR(event.purchase.totalPrice)}</p>
+                  </div>
+                  <div>
+                    <p className="text-foam-400">NGO</p>
+                    <p className="font-data mt-0.5 text-foam-100">{formatNKR(event.purchase.ngoAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-foam-400">Platform</p>
+                    <p className="font-data mt-0.5 text-foam-100">{formatNKR(event.purchase.platformAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-foam-400">Community</p>
+                    <p className="font-data mt-0.5 text-foam-100">{formatNKR(event.purchase.communityAmount)}</p>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-foam-400">
                 <span className="flex items-center gap-1.5">

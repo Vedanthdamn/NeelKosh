@@ -67,6 +67,7 @@ export default async function ProjectDetailPage(props: PageProps<"/projects/[id]
         txHash: transfer.txHash,
         occurredAt: transfer.occurredAt,
         reason: transfer.kind === "retirement" ? retirementByTx.get(transfer.txHash)?.reason : undefined,
+        purchase: transfer.purchase,
       });
     }
   });

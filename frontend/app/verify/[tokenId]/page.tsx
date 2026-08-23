@@ -47,6 +47,7 @@ export default async function VerifyResultPage(props: PageProps<"/verify/[tokenI
     txHash: transfer.txHash,
     occurredAt: transfer.occurredAt,
     reason: transfer.kind === "retirement" ? retirementByTx.get(transfer.txHash)?.reason : undefined,
+    purchase: transfer.purchase,
   }));
 
   return (

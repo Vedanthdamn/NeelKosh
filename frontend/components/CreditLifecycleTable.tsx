@@ -1,8 +1,9 @@
 import { CopyableCode } from "@/components/CopyableCode";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import type { PurchaseSplit } from "@/lib/api";
+import { formatDateTime, formatNKR, formatNumber } from "@/lib/format";
 
 export interface LifecycleEvent {
-  kind: "mint" | "transfer" | "retirement";
+  kind: "mint" | "transfer" | "retirement" | "purchase";
   tokenId: string;
   vintage: number;
   from: string;
@@ -11,12 +12,14 @@ export interface LifecycleEvent {
   txHash: string;
   occurredAt: string;
   reason?: string;
+  purchase?: PurchaseSplit | null;
 }
 
 const KIND_LABEL: Record<LifecycleEvent["kind"], string> = {
   mint: "Minted",
   transfer: "Transferred",
   retirement: "Retired",
+  purchase: "Purchased",
 };
 
 function KindBadge({ kind }: { kind: LifecycleEvent["kind"] }) {
@@ -27,11 +30,20 @@ function KindBadge({ kind }: { kind: LifecycleEvent["kind"] }) {
       </span>
     );
   }
-  const dotColor = kind === "mint" ? "bg-sand-500" : "bg-teal-500";
+  const dotColor = kind === "mint" ? "bg-sand-500" : kind === "purchase" ? "bg-water-700" : "bg-teal-500";
   return (
     <span className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-900">
       <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
       {KIND_LABEL[kind]}
+    </span>
+  );
+}
+
+/** Compact one-line split breakdown, used wherever a purchase event needs to show its price. */
+export function PurchaseSplitLine({ split }: { split: PurchaseSplit }) {
+  return (
+    <span className="font-data text-xs text-ink-500">
+      {formatNKR(split.totalPrice)} paid · {formatNKR(split.ngoAmount)} NGO / {formatNKR(split.platformAmount)} platform / {formatNKR(split.communityAmount)} community
     </span>
   );
 }
@@ -62,6 +74,11 @@ export function CreditLifecycleTable({ events, showVintage = true }: { events: L
               <td className="py-3 pr-4">
                 <KindBadge kind={event.kind} />
                 {event.reason ? <p className="mt-1 max-w-[220px] text-xs text-ink-500">{event.reason}</p> : null}
+                {event.purchase ? (
+                  <p className="mt-1 max-w-[240px]">
+                    <PurchaseSplitLine split={event.purchase} />
+                  </p>
+                ) : null}
               </td>
               {showVintage ? <td className="py-3 pr-4 font-data text-ink-700">{event.vintage}</td> : null}
               <td className="py-3 pr-4 font-data font-medium text-ink-900">{formatNumber(event.amount)} tCO2e</td>

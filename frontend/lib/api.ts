@@ -74,14 +74,22 @@ export interface ProjectDetail {
   };
 }
 
+export interface PurchaseSplit {
+  totalPrice: string;
+  ngoAmount: string;
+  platformAmount: string;
+  communityAmount: string;
+}
+
 export interface CreditHistoryTransfer {
-  kind: "mint" | "transfer" | "retirement";
+  kind: "mint" | "transfer" | "retirement" | "purchase";
   from: string;
   to: string;
   amount: string;
   txHash: string;
   blockNumber: number;
   occurredAt: string;
+  purchase: PurchaseSplit | null;
 }
 
 export interface CreditHistoryRetirement {

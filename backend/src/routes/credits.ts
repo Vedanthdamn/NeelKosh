@@ -208,7 +208,7 @@ creditsRouter.get(
     }
     const tokenIdStr = tokenId.toString();
 
-    const [batch, report, transfers, retirements] = await Promise.all([
+    const [batch, report, transfers, retirements, purchases] = await Promise.all([
       prisma.creditBatch.findUnique({ where: { tokenId: tokenIdStr } }),
       prisma.mrvReport.findFirst({ where: { tokenId: tokenIdStr } }),
       prisma.transferEvent.findMany({
@@ -216,7 +216,12 @@ creditsRouter.get(
         orderBy: [{ blockNumber: "asc" }, { logIndex: "asc" }],
       }),
       prisma.retirementRecord.findMany({ where: { tokenId: tokenIdStr }, orderBy: { retiredAt: "asc" } }),
+      prisma.marketplacePurchase.findMany({ where: { tokenId: tokenIdStr } }),
     ]);
+    // A purchase transfer moves credits from Marketplace's escrow to the buyer — same txHash as
+    // the CreditsPurchased event that paid for it. Keyed by txHash so the transfer list below can
+    // enrich that one row with the split, rather than listing the same movement twice.
+    const purchaseByTxHash = new Map(purchases.map((purchase) => [purchase.txHash, purchase]));
 
     if (!batch) {
       res.status(404).json({ error: `No credit batch with token id ${tokenIdStr}` });
@@ -255,21 +260,35 @@ creditsRouter.get(
             verifyTxHash: report.verifyTxHash,
           }
         : null,
-      transfers: transfers.map((transfer) => ({
-        // A mint is a transfer from the zero address; a retirement is a burn to it.
-        kind:
-          transfer.fromAddress === ethers.ZeroAddress
-            ? "mint"
-            : transfer.toAddress === ethers.ZeroAddress
-              ? "retirement"
-              : "transfer",
-        from: transfer.fromAddress,
-        to: transfer.toAddress,
-        amount: transfer.amount,
-        txHash: transfer.txHash,
-        blockNumber: transfer.blockNumber,
-        occurredAt: transfer.occurredAt,
-      })),
+      transfers: transfers.map((transfer) => {
+        const purchase = purchaseByTxHash.get(transfer.txHash);
+        return {
+          // A mint is a transfer from the zero address; a retirement is a burn to it; a purchase
+          // is the one transfer type that carries a price — everything else is a plain transfer.
+          kind:
+            transfer.fromAddress === ethers.ZeroAddress
+              ? "mint"
+              : transfer.toAddress === ethers.ZeroAddress
+                ? "retirement"
+                : purchase
+                  ? "purchase"
+                  : "transfer",
+          from: transfer.fromAddress,
+          to: transfer.toAddress,
+          amount: transfer.amount,
+          txHash: transfer.txHash,
+          blockNumber: transfer.blockNumber,
+          occurredAt: transfer.occurredAt,
+          purchase: purchase
+            ? {
+                totalPrice: purchase.totalPrice,
+                ngoAmount: purchase.ngoAmount,
+                platformAmount: purchase.platformAmount,
+                communityAmount: purchase.communityAmount,
+              }
+            : null,
+        };
+      }),
       retirements: retirements.map((retirement) => ({
         retirementId: retirement.onChainRetirementId,
         amount: retirement.amount,
