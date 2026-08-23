@@ -39,7 +39,7 @@ defaults would be meaningless on a funded network.
 | `POST` | `/api/projects` | Register a project on chain, store off-chain metadata | `NGO` role |
 | `GET` | `/api/projects` | List projects (from cache) merged with metadata | — |
 | `GET` | `/api/projects/:id` | Registration, reporting periods, credit totals | — |
-| `POST` | `/api/mrv/submit` | Hash + store an MRV report, submit the hash on chain | — |
+| `POST` | `/api/mrv/submit` | Hash + store an MRV report (optionally with a photo — see below), submit the hash on chain | — |
 | `POST` | `/api/mrv/:submissionId/verify` | The oracle step: approve, then mint | `VERIFIER` role |
 | `POST` | `/api/credits/:tokenId/retire` | Burn credits with a stated reason | — |
 | `GET` | `/api/credits/:tokenId/history` | Full provenance for a credit batch | — |
@@ -58,6 +58,30 @@ an identified verifier approved exactly this tonnage, and the contracts enforce 
 amount matches what they signed. Trust comes from accountable verifiers and an inspectable
 process, not from cryptography.
 
+## Anti-fraud photo verification
+
+`POST /api/mrv/submit` accepts an optional multipart field `photo` — a geotagged site photo. When
+present, it's forwarded to mrv-engine's `POST /photo/verify-submission` (see
+`../mrv-engine/mrv_engine/photo/`), which runs three explainable checks — does the photo's EXIF
+GPS fall inside the project boundary, is it a near-duplicate of a photo already submitted for
+this project, does it even look like vegetation — and returns `clear` / `review` / `reject` with
+plain-English reasons.
+
+This is advisory only. It's stored on the `MrvReport` row (`photoHash`, `photoVerification`) and
+returned in the submit response and in `GET /api/projects/:id`'s `reportingPeriods`, for a human
+verifier to read — it never blocks the on-chain submission or influences
+`POST /api/mrv/:submissionId/verify` in any way. See `src/services/photoVerification.ts` for the
+client and `src/routes/mrv.ts` for exactly where it sits in the submit flow: after the on-chain
+transaction has already succeeded, so a photo-check failure (a corrupt upload, mrv-engine being
+briefly down) can only ever leave `photoVerification: null` on an otherwise-successful
+submission, never fail it.
+
+Duplicate detection is durable across restarts on this side of the boundary: before calling
+mrv-engine, this backend queries every prior `photoHash` on file for the project and passes them
+in explicitly, rather than relying on mrv-engine's own in-memory fallback store (which exists so
+mrv-engine's photo endpoints are independently testable, not for production use — see that
+service's own docs).
+
 ## Prototype scope
 
 Wallets for the registrar, verifier, oracle and a fixed pool of implementer (NGO) addresses are
@@ -71,3 +95,8 @@ On-chain state fully rebuilds from the event log if SQLite is lost. Off-chain da
 descriptions, photos, and full MRV report bodies — does not; it exists only in SQLite. A
 submission the backend never saw is recorded from the log with its report body marked unknown
 rather than reconstructed.
+
+Submitted photos themselves are not persisted anywhere — only the verification *result* is. The
+photo lives in memory for the duration of the request (forwarded to mrv-engine, then discarded).
+A production deployment would need durable photo storage (S3 or similar) so a verifier can view
+the actual image later, not just the numbers a check produced from it.

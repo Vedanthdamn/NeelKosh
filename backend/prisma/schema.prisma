@@ -89,7 +89,20 @@ model MrvReport {
   tokenId              String?
   mintTxHash           String?
 
+  /// Perceptual hash (imagehash phash, from mrv-engine) of this submission's attached photo, if
+  /// any. Kept as its own indexed column rather than only inside photoVerification's JSON blob,
+  /// since future submissions for this project need to query "every prior hash" efficiently for
+  /// their own duplicate check — see services/photoVerification.ts.
+  photoHash            String?
+  /// JSON-encoded result from mrv-engine's POST /photo/verify-submission: locationValid,
+  /// distanceFromBoundary, hasLocationData, isDuplicate, similarityScore, plausibilityScore,
+  /// overallFlag, reasons. Advisory only — see services/photoVerification.ts and routes/mrv.ts
+  /// for why this never blocks or auto-decides a submission. Null when no photo was attached, or
+  /// when mrv-engine couldn't be reached (a photo-check outage must not block a real submission).
+  photoVerification    String?
+
   @@index([projectId])
+  @@index([photoHash])
 }
 
 /// Cache of an issued CarbonCreditToken batch, one row per token id. totalMinted/totalRetired

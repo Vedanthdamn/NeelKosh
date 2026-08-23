@@ -9,6 +9,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { parseJsonField } from "../utils/serialize";
 import { ecosystemToInt, ECOSYSTEM_NAMES } from "../utils/ecosystem";
 import { toMicrodegreeTuple, type LatLng } from "../utils/geo";
+import type { PhotoVerificationResult } from "../services/photoVerification";
 
 export const projectsRouter = Router();
 
@@ -223,6 +224,9 @@ projectsRouter.get(
         verifiedAt: report.verifiedAt,
         tokenId: report.tokenId,
         ndvi: parseJsonField<{ data?: { ndvi?: number } }>(report.reportPayload, {}).data?.ndvi ?? null,
+        // Advisory anti-fraud result from mrv-engine, if a photo was attached at submission —
+        // see services/photoVerification.ts. Null means no photo, not "checks passed."
+        photoVerification: parseJsonField<PhotoVerificationResult | null>(report.photoVerification, null),
       })),
       credits: {
         batches: creditBatches,

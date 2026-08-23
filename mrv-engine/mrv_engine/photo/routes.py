@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, ValidationError
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from .duplicate import check_duplicate
 from .geofence import LatLng, check_geofence
 from .plausibility import check_plausibility
+from .verification import verify_submission
 
 router = APIRouter(prefix="/photo", tags=["photo verification"])
 
@@ -33,6 +35,24 @@ class DuplicateCheckResponse(BaseModel):
 class PlausibilityCheckResponse(BaseModel):
     plausibility_score: float
     is_plausible: bool
+
+
+class VerifySubmissionResponse(BaseModel):
+    """
+    camelCase, matching Node/TypeScript convention exactly rather than requiring a translation
+    layer at the boundary — the backend consuming this is exactly where a field-name mismatch
+    would silently compile and then fail at runtime.
+    """
+
+    locationValid: bool
+    distanceFromBoundary: float | None
+    hasLocationData: bool
+    isDuplicate: bool
+    similarityScore: float
+    photoHash: str
+    plausibilityScore: float
+    overallFlag: Literal["clear", "review", "reject"]
+    reasons: list[str]
 
 
 def _parse_boundary(boundary_json: str) -> list[LatLng]:
@@ -124,3 +144,41 @@ async def plausibility_check(file: UploadFile = File(..., description="The submi
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return PlausibilityCheckResponse(plausibility_score=result.plausibility_score, is_plausible=result.is_plausible)
+
+
+@router.post("/verify-submission", response_model=VerifySubmissionResponse)
+async def verify_submission_endpoint(
+    file: UploadFile = File(..., description="The submitted photo."),
+    project_id: str = Form(..., description="Which project's photo history to compare against."),
+    boundary: str = Form(..., description="JSON array of {lat, lng} points — the project's registered boundary."),
+    known_hashes: str | None = Form(
+        None, description="Optional JSON array of previously-known hex phash strings for this project. Omit to use mrv-engine's own per-process store instead."
+    ),
+) -> VerifySubmissionResponse:
+    """
+    Runs the geofence, duplicate, and plausibility checks against one photo and combines them
+    into one advisory recommendation. Reads the photo once and passes the same bytes to all
+    three checks, rather than three separate round trips a caller would otherwise need to make
+    (and pay the cost of re-uploading the file for). See verification.py for exactly how
+    overallFlag is decided — explicit severity levels per check, not a hidden weighted score.
+    """
+    photo_bytes = await _read_photo(file)
+    boundary_points = _parse_boundary(boundary)
+    hashes = _parse_known_hashes(known_hashes)
+
+    try:
+        result = verify_submission(photo_bytes, project_id, boundary_points, known_hashes=hashes)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return VerifySubmissionResponse(
+        locationValid=result.location_valid,
+        distanceFromBoundary=result.distance_from_boundary_meters,
+        hasLocationData=result.has_location_data,
+        isDuplicate=result.is_duplicate,
+        similarityScore=result.similarity_score,
+        photoHash=result.photo_hash,
+        plausibilityScore=result.plausibility_score,
+        overallFlag=result.overall_flag,
+        reasons=result.reasons,
+    )

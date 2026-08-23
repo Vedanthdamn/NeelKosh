@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { ethers } from "ethers";
+import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../db";
 import { verificationRegistry } from "../blockchain/contracts";
@@ -8,19 +9,44 @@ import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { logStage } from "../utils/logger";
+import { parseJsonField } from "../utils/serialize";
+import type { LatLng } from "../utils/geo";
 import { runOracleVerification } from "../services/oracleBridge";
+import { verifyPhotoSubmission, type PhotoVerificationResult } from "../services/photoVerification";
 
 export const mrvRouter = Router();
 
+// Memory storage, not disk: the photo only needs to exist long enough to forward to mrv-engine
+// (see services/photoVerification.ts) and compute a hash from — this backend doesn't persist
+// the photo itself anywhere. That's a real prototype-scope limit, not an oversight: a production
+// system would need durable photo storage (S3 or similar) so a verifier can view the actual
+// image later, not just the numbers a check produced from it. See backend/README.md.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+/**
+ * A multipart request (photo attached) arrives with every non-file field as a string — multer
+ * doesn't know these are meant to be numbers or JSON. z.coerce.number() accepts a real number
+ * (the existing JSON-only request shape) or a numeric string (multipart) identically, so this
+ * one schema validates both without the route needing to know which kind of request it got.
+ */
 const submitMrvSchema = z.object({
-  projectId: z.number().int().positive(),
-  vintage: z.number().int().min(2000).max(2100),
-  tonnesCO2: z.number().int().positive(),
+  projectId: z.coerce.number().int().positive(),
+  vintage: z.coerce.number().int().min(2000).max(2100),
+  tonnesCO2: z.coerce.number().int().positive(),
   methodology: z.string().min(1),
   supportingDataRef: z.string().min(1),
   // Whatever the methodology requires — sensor readings, survey notes, imagery references — is
-  // caller-defined. The whole thing is stored verbatim; only its hash goes on chain.
-  reportData: z.record(z.unknown()).default({}),
+  // caller-defined. The whole thing is stored verbatim; only its hash goes on chain. Multipart
+  // requests can only send string fields, so a JSON-encoded string here is parsed back into an
+  // object; a JSON request can send the object directly and this passes it through unchanged.
+  reportData: z.preprocess((value) => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value; // let z.record below reject it with a clear "not an object" error
+    }
+  }, z.record(z.unknown()).default({})),
 });
 
 /**
@@ -30,9 +56,16 @@ const submitMrvSchema = z.object({
  * blockchain/wallets.ts). A project whose implementer isn't in that fixed demo pool can't submit
  * through this API — by design: in production this transaction is signed by the implementing
  * organisation's own wallet, never by this backend.
+ *
+ * An NGO can optionally attach a geotagged site photo (multipart field "photo"). When present,
+ * it's run through mrv-engine's anti-fraud checks (geofence, duplicate, plausibility) after the
+ * on-chain submission succeeds, and the result is stored alongside this report — purely
+ * advisory, visible to the verifier later, never blocking or deciding the submission itself. See
+ * services/photoVerification.ts for exactly why, and what happens if mrv-engine is unreachable.
  */
 mrvRouter.post(
   "/submit",
+  upload.single("photo"),
   validateBody(submitMrvSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof submitMrvSchema>;
@@ -68,6 +101,7 @@ mrvRouter.post(
       tonnesCO2: body.tonnesCO2,
       methodology: body.methodology,
       dataHash,
+      photoAttached: Boolean(req.file),
     });
 
     const verificationRegistryAsImplementer = verificationRegistry.connect(implementerWallet) as ethers.Contract;
@@ -104,6 +138,37 @@ mrvRouter.post(
       },
     });
 
+    // The on-chain submission above is already final at this point — everything from here on is
+    // advisory and must never fail the request. See services/photoVerification.ts.
+    let photoVerification: PhotoVerificationResult | null = null;
+    if (req.file) {
+      const boundary = parseJsonField<LatLng[]>(project.boundary, []);
+      const priorReports = await prisma.mrvReport.findMany({
+        where: { projectId: body.projectId, photoHash: { not: null } },
+        select: { photoHash: true },
+      });
+      const knownHashes = priorReports.map((r) => r.photoHash).filter((hash): hash is string => hash !== null);
+
+      photoVerification = await verifyPhotoSubmission({
+        photoBuffer: req.file.buffer,
+        photoFilename: req.file.originalname,
+        photoMimeType: req.file.mimetype,
+        projectId: body.projectId,
+        boundary,
+        knownHashes,
+      });
+
+      if (photoVerification) {
+        await prisma.mrvReport.update({
+          where: { submissionId: Number(submissionId) },
+          data: {
+            photoHash: photoVerification.photoHash,
+            photoVerification: JSON.stringify(photoVerification),
+          },
+        });
+      }
+    }
+
     res.status(201).json({
       submissionId: Number(submissionId),
       projectId: body.projectId,
@@ -112,6 +177,7 @@ mrvRouter.post(
       dataHash,
       txHash: receipt.hash,
       status: "Pending",
+      photoVerification,
     });
   })
 );

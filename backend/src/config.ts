@@ -80,6 +80,10 @@ export const config = {
   chainId: deployment.chainId as number,
   rpcUrl: process.env.RPC_URL || DEFAULT_RPC_URLS[network],
   sharedDir: SHARED_DIR,
+  // mrv-engine's photo-verification endpoints. Not network-dependent like the wallet keys above
+  // — mrv-engine is a sibling service on this same machine (or wherever this backend is
+  // deployed), not something that varies between localhost and Amoy.
+  mrvEngineUrl: process.env.MRV_ENGINE_URL || "http://127.0.0.1:8088",
   contracts: deployment.contracts as {
     ProjectRegistry: string;
     VerificationRegistry: string;
