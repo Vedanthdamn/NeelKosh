@@ -198,6 +198,9 @@ projectsRouter.get(
 
     res.json({
       project: serializeProject(project, metadata),
+      // ndvi is pulled from the submitter's raw reportPayload rather than stored as its own
+      // column: it's only present when whoever submitted included it under reportData (e.g. via
+      // the mrv-engine simulator), so it's optional here by nature, not by omission.
       reportingPeriods: reports.map((report) => ({
         submissionId: report.submissionId,
         vintage: report.vintage,
@@ -212,6 +215,7 @@ projectsRouter.get(
         verifierAddress: report.verifierAddress,
         verifiedAt: report.verifiedAt,
         tokenId: report.tokenId,
+        ndvi: parseJsonField<{ data?: { ndvi?: number } }>(report.reportPayload, {}).data?.ndvi ?? null,
       })),
       credits: {
         batches: creditBatches,
