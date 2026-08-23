@@ -30,6 +30,60 @@ function parseTokenId(raw: string): bigint | null {
 }
 
 /**
+ * What an address currently holds. Nothing in the cache stores a running balance directly —
+ * TransferEvent only records individual movements — so this first narrows to every tokenId this
+ * address has ever been a party to (a cheap indexed lookup), then asks CarbonCreditToken itself
+ * for the authoritative current balanceOf each candidate rather than summing deltas here and
+ * risking drift from the chain's own accounting. Only positive balances are returned.
+ */
+creditsRouter.get(
+  "/holdings/:address",
+  asyncHandler(async (req, res) => {
+    if (!ethers.isAddress(req.params.address)) {
+      res.status(400).json({ error: "address must be a valid Ethereum address" });
+      return;
+    }
+    const address = ethers.getAddress(req.params.address);
+
+    const touched = await prisma.transferEvent.findMany({
+      where: { OR: [{ fromAddress: address }, { toAddress: address }] },
+      select: { tokenId: true },
+      distinct: ["tokenId"],
+    });
+
+    const holdings = await Promise.all(
+      touched.map(async ({ tokenId }) => {
+        const balance = (await carbonCreditToken.balanceOf(address, tokenId)) as bigint;
+        return { tokenId, balance };
+      })
+    );
+    const held = holdings.filter((h) => h.balance > 0n);
+
+    const batches = await prisma.creditBatch.findMany({ where: { tokenId: { in: held.map((h) => h.tokenId) } } });
+    const batchesByTokenId = new Map(batches.map((b) => [b.tokenId, b]));
+    const projects = await prisma.onChainProject.findMany({
+      where: { projectId: { in: batches.map((b) => b.projectId) } },
+    });
+    const projectsById = new Map(projects.map((p) => [p.projectId, p]));
+
+    res.json({
+      holdings: held.map(({ tokenId, balance }) => {
+        const batch = batchesByTokenId.get(tokenId);
+        const project = batch ? projectsById.get(batch.projectId) : undefined;
+        return {
+          tokenId,
+          balance: balance.toString(),
+          vintage: batch?.vintage ?? null,
+          verifierAddress: batch?.verifierAddress ?? null,
+          issuedAt: batch?.issuedAt ?? null,
+          project: project ? { projectId: project.projectId, name: project.name, ecosystem: project.ecosystem } : null,
+        };
+      }),
+    });
+  })
+);
+
+/**
  * Retires credits on chain. retireCredits burns from msg.sender, so this must be signed by the
  * wallet that actually holds the balance — there is no "retire on behalf of" path, by design.
  * This resolves which server-held wallet that is (or takes holderAddress explicitly), which is

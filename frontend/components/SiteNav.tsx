@@ -6,6 +6,7 @@ type Register = "water" | "mudflat";
 const NAV_LINKS = [
   { href: "/projects", label: "Projects" },
   { href: "/marketplace", label: "Marketplace" },
+  { href: "/my-credits", label: "My credits" },
   { href: "/verify", label: "Verify", labelFull: "Verify a credit" },
 ];
 

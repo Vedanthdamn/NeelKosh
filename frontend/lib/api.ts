@@ -278,6 +278,34 @@ export async function claimFaucet(token: string): Promise<FaucetResult> {
   return postJson("/api/marketplace/faucet", {}, token);
 }
 
+export interface CreditHolding {
+  tokenId: string;
+  balance: string;
+  vintage: number | null;
+  verifierAddress: string | null;
+  issuedAt: string | null;
+  project: { projectId: number; name: string; ecosystem: Ecosystem } | null;
+}
+
+export async function fetchHoldings(address: string): Promise<CreditHolding[]> {
+  const data = await getJson<{ holdings: CreditHolding[] }>(`/api/credits/holdings/${address}`);
+  return data.holdings;
+}
+
+export interface RetireResult {
+  retirementId: number;
+  tokenId: string;
+  amount: string;
+  retiredByAddress: string;
+  reason: string;
+  txHash: string;
+  totalRetired: string;
+}
+
+export async function retireCredits(tokenId: string, amount: number, retirementReason: string, holderAddress: string): Promise<RetireResult> {
+  return postJson(`/api/credits/${tokenId}/retire`, { amount, retirementReason, holderAddress });
+}
+
 export async function registerProject(input: RegisterProjectInput) {
   // Response shape matches ProjectSummary exactly (projectId and registrationTxHash included).
   return postJson<ProjectSummary>("/api/projects", input);
