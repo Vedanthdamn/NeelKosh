@@ -26,18 +26,28 @@ async function main() {
   const registrar = process.env.REGISTRAR_ADDRESS || deployer.address;
   const verifier = process.env.VERIFIER_ADDRESS || deployer.address;
   const oracle = process.env.ORACLE_ADDRESS || deployer.address;
+  const platformTreasury = process.env.PLATFORM_TREASURY_ADDRESS || deployer.address;
+  const communityFund = process.env.COMMUNITY_FUND_ADDRESS || deployer.address;
 
   console.log(`Deploying to ${network.name} (chainId ${network.config.chainId})`);
-  console.log(`  admin/deployer  ${deployer.address}`);
-  console.log(`  registrar       ${registrar}`);
-  console.log(`  verifier        ${verifier}`);
-  console.log(`  oracle/minter   ${oracle}`);
+  console.log(`  admin/deployer    ${deployer.address}`);
+  console.log(`  registrar         ${registrar}`);
+  console.log(`  verifier          ${verifier}`);
+  console.log(`  oracle/minter     ${oracle}`);
+  console.log(`  platform treasury ${platformTreasury}`);
+  console.log(`  community fund    ${communityFund}`);
 
-  const deployed = await deploySystem(deployer, { registrar, verifier, oracle }, METADATA_URI);
+  const deployed = await deploySystem(
+    deployer,
+    { registrar, verifier, oracle, platformTreasury, communityFund },
+    METADATA_URI
+  );
 
   console.log(`\nProjectRegistry       ${deployed.projectRegistryAddress}`);
   console.log(`VerificationRegistry  ${deployed.verificationRegistryAddress}`);
   console.log(`CarbonCreditToken     ${deployed.carbonCreditTokenAddress}`);
+  console.log(`SimStablecoin         ${deployed.simStablecoinAddress}`);
+  console.log(`Marketplace           ${deployed.marketplaceAddress}`);
 
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   writeSharedOutputs(network.name, chainId, deployed);

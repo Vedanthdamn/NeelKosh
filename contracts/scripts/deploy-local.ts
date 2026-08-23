@@ -15,23 +15,34 @@ const METADATA_URI =
  * --network localhost in another) so seed-demo-data.ts sees the same chain state afterwards.
  */
 async function main() {
-  const [deployer, registrar, verifier, oracle] = await ethers.getSigners();
+  const [deployer, registrar, verifier, oracle, , , , , , , platformTreasury, communityFund] =
+    await ethers.getSigners();
 
   console.log(`Deploying to ${network.name} (chainId ${network.config.chainId})`);
-  console.log(`  admin/deployer  ${deployer.address}`);
-  console.log(`  registrar       ${registrar.address}`);
-  console.log(`  verifier        ${verifier.address}`);
-  console.log(`  oracle/minter   ${oracle.address}`);
+  console.log(`  admin/deployer    ${deployer.address}`);
+  console.log(`  registrar         ${registrar.address}`);
+  console.log(`  verifier          ${verifier.address}`);
+  console.log(`  oracle/minter     ${oracle.address}`);
+  console.log(`  platform treasury ${platformTreasury.address}`);
+  console.log(`  community fund    ${communityFund.address}`);
 
   const deployed = await deploySystem(
     deployer,
-    { registrar: registrar.address, verifier: verifier.address, oracle: oracle.address },
+    {
+      registrar: registrar.address,
+      verifier: verifier.address,
+      oracle: oracle.address,
+      platformTreasury: platformTreasury.address,
+      communityFund: communityFund.address,
+    },
     METADATA_URI
   );
 
   console.log(`\nProjectRegistry       ${deployed.projectRegistryAddress}`);
   console.log(`VerificationRegistry  ${deployed.verificationRegistryAddress}`);
   console.log(`CarbonCreditToken     ${deployed.carbonCreditTokenAddress}`);
+  console.log(`SimStablecoin         ${deployed.simStablecoinAddress}`);
+  console.log(`Marketplace           ${deployed.marketplaceAddress}`);
 
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   writeSharedOutputs(network.name, chainId, deployed);

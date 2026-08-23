@@ -19,6 +19,12 @@ import {ICarbonCreditToken} from "./interfaces/ICarbonCreditToken.sol";
 contract Marketplace is AccessControl, ERC1155Holder {
     using SafeERC20 for IERC20;
 
+    /// @notice Role permitted to change the revenue split between NGO, platform and community.
+    /// @dev Deliberately separate from DEFAULT_ADMIN_ROLE's other implicit powers (like granting
+    ///      more admins) so "who can move where the money goes" can be audited and delegated on
+    ///      its own, the same way ProjectRegistry keeps REGISTRAR_ROLE distinct from the admin.
+    bytes32 public constant SPLIT_ADMIN_ROLE = keccak256("SPLIT_ADMIN_ROLE");
+
     /// @dev Denominator revenue-split percentages are expressed against. Basis points (1/100 of
     ///      a percent) rather than plain percent so the split can be tuned finer than whole
     ///      points without rewriting the type.
@@ -90,6 +96,19 @@ contract Marketplace is AccessControl, ERC1155Holder {
         uint256 communityAmount
     );
 
+    /// @notice Emitted when an NGO withdraws a listing, returning any unsold credits.
+    event ListingCancelled(
+        uint256 indexed listingId,
+        uint256 indexed tokenId,
+        address indexed seller,
+        uint256 amountReturned
+    );
+
+    /// @notice Emitted whenever the revenue split changes.
+    /// @dev Purchases already made keep the amounts they were paid out at (see CreditsPurchased);
+    ///      this only affects purchases from this point forward.
+    event SplitUpdated(uint256 ngoBps, uint256 platformBps, uint256 communityBps, address updatedBy);
+
     error InvalidAddress();
     error InvalidSplit(uint256 totalBps);
     error NotProjectImplementer(address caller, address implementer);
@@ -98,6 +117,7 @@ contract Marketplace is AccessControl, ERC1155Holder {
     error ListingDoesNotExist(uint256 listingId);
     error ListingNotActive(uint256 listingId);
     error InsufficientListedAmount(uint256 listingId, uint256 available, uint256 requested);
+    error NotListingSeller(address caller, address seller);
 
     /// @notice Deploys the marketplace bound to the credit token, payment currency and payout
     ///         split it will use for every purchase.
@@ -143,6 +163,7 @@ contract Marketplace is AccessControl, ERC1155Holder {
         communityBps = communityBps_;
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(SPLIT_ADMIN_ROLE, admin);
     }
 
     /// @notice Lists a batch of carbon credits for sale.
@@ -233,6 +254,54 @@ contract Marketplace is AccessControl, ERC1155Holder {
             platformAmount,
             communityAmount
         );
+    }
+
+    /// @notice Withdraws a listing, returning any unsold credits to the seller.
+    /// @dev Restricted to the listing's own seller — not the project implementer generally,
+    ///      since the implementer address on record could have changed since this listing was
+    ///      created, and it's specifically this listing's escrowed credits being returned.
+    ///      Whatever amount remains unsold (already-purchased tonnes stay with their buyers, of
+    ///      course) is transferred back and the listing is marked inactive, so a later buyCredits
+    ///      or a second cancelListing on it fails cleanly rather than silently no-op-ing.
+    /// @param listingId Listing to withdraw.
+    function cancelListing(uint256 listingId) external {
+        Listing storage listing = _requireListing(listingId);
+        if (!listing.active) revert ListingNotActive(listingId);
+        if (msg.sender != listing.seller) revert NotListingSeller(msg.sender, listing.seller);
+
+        uint256 amountReturned = listing.amount;
+        listing.active = false;
+        listing.amount = 0;
+
+        if (amountReturned > 0) {
+            creditToken.safeTransferFrom(address(this), listing.seller, listing.tokenId, amountReturned, "");
+        }
+
+        emit ListingCancelled(listingId, listing.tokenId, listing.seller, amountReturned);
+    }
+
+    /// @notice Changes the 3-way revenue split applied to future purchases.
+    /// @dev The three must still sum to 10,000 bps — this cannot be used to under- or
+    ///      over-allocate a purchase, only to move the boundaries between the three shares.
+    ///      Already-settled purchases are unaffected; see CreditsPurchased and the note on
+    ///      SplitUpdated.
+    /// @param ngoBps_ New seller share, in basis points.
+    /// @param platformBps_ New platform treasury share, in basis points.
+    /// @param communityBps_ New community fund share, in basis points.
+    function setSplitBps(
+        uint256 ngoBps_,
+        uint256 platformBps_,
+        uint256 communityBps_
+    ) external onlyRole(SPLIT_ADMIN_ROLE) {
+        if (ngoBps_ + platformBps_ + communityBps_ != BPS_DENOMINATOR) {
+            revert InvalidSplit(ngoBps_ + platformBps_ + communityBps_);
+        }
+
+        ngoBps = ngoBps_;
+        platformBps = platformBps_;
+        communityBps = communityBps_;
+
+        emit SplitUpdated(ngoBps_, platformBps_, communityBps_, msg.sender);
     }
 
     /// @notice Reads a listing.

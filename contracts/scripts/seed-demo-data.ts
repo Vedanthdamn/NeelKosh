@@ -27,6 +27,9 @@ const DEMO_PROJECTS = [
       { vintage: 2023, tonnesCO2: 1850 },
       { vintage: 2024, tonnesCO2: 2100 },
     ],
+    // Lists part of the 2024 batch for sale, so the marketplace has something to browse and buy
+    // as soon as the demo boots.
+    listing: { vintage: 2024, amount: 500, pricePerTonneNKR: "450" },
   },
   {
     name: "Pichavaram Mangrove Restoration, Tamil Nadu",
@@ -37,6 +40,7 @@ const DEMO_PROJECTS = [
       { vintage: 2023, tonnesCO2: 620 },
       { vintage: 2024, tonnesCO2: 780 },
     ],
+    listing: { vintage: 2024, amount: 200, pricePerTonneNKR: "500" },
   },
   {
     name: "Bhitarkanika Mangrove Restoration, Odisha",
@@ -44,6 +48,7 @@ const DEMO_PROJECTS = [
     center: { lat: 20.7191, lng: 86.899 },
     implementerIndex: 6,
     submissions: [{ vintage: 2023, tonnesCO2: 1340 }],
+    listing: { vintage: 2023, amount: 300, pricePerTonneNKR: "600" },
   },
   {
     name: "Gulf of Kutch Mangrove Restoration, Gujarat",
@@ -102,6 +107,10 @@ async function main() {
   const registrar = signers[1];
   const verifier = signers[2];
   const oracle = signers[3];
+  // Demo buyer wallets: distinct from the implementer signers (indices 4-7) and the platform
+  // treasury / community fund signers deploy-local.ts assigns (indices 10-11), so faucet-funding
+  // them here never collides with a role that already has an on-chain job.
+  const buyers = [signers[8], signers[9]];
 
   const projectRegistry = await ethers.getContractAt(
     "ProjectRegistry",
@@ -115,6 +124,8 @@ async function main() {
     "CarbonCreditToken",
     deployment.contracts.CarbonCreditToken
   );
+  const stablecoin = await ethers.getContractAt("SimStablecoin", deployment.contracts.SimStablecoin);
+  const marketplace = await ethers.getContractAt("Marketplace", deployment.contracts.Marketplace);
 
   const trackedContracts = [
     { address: deployment.contracts.ProjectRegistry, iface: projectRegistry.interface, label: "ProjectRegistry" },
@@ -124,6 +135,8 @@ async function main() {
       label: "VerificationRegistry",
     },
     { address: deployment.contracts.CarbonCreditToken, iface: carbonCreditToken.interface, label: "CarbonCreditToken" },
+    { address: deployment.contracts.SimStablecoin, iface: stablecoin.interface, label: "SimStablecoin" },
+    { address: deployment.contracts.Marketplace, iface: marketplace.interface, label: "Marketplace" },
   ];
 
   console.log(`Seeding demo data on ${network.name}`);
@@ -183,10 +196,42 @@ async function main() {
       const tokenId = await carbonCreditToken.encodeTokenId(projectId, submission.vintage);
       console.log(`  minted token ${tokenId} -> ${implementer.address}`);
       logEvents(mintReceipt, trackedContracts);
+
+      if (project.listing && project.listing.vintage === submission.vintage) {
+        // setApprovalForAll is the ERC-1155 equivalent of an ERC-20 approve: Marketplace can't
+        // escrow the listed credits without it. Harmless to call again if this implementer
+        // lists more than once — it's idempotent, not additive.
+        const approveTx = await carbonCreditToken
+          .connect(implementer)
+          .setApprovalForAll(await marketplace.getAddress(), true);
+        await approveTx.wait();
+
+        const pricePerTonne = ethers.parseUnits(project.listing.pricePerTonneNKR, 18);
+        const listingId: bigint = await marketplace
+          .connect(implementer)
+          .listCredits.staticCall(tokenId, project.listing.amount, pricePerTonne);
+        const listTx = await marketplace
+          .connect(implementer)
+          .listCredits(tokenId, project.listing.amount, pricePerTonne);
+        const listReceipt = await listTx.wait();
+        console.log(
+          `  listed ${listingId}: ${project.listing.amount} tCO2e @ ${project.listing.pricePerTonneNKR} NKR/t`
+        );
+        logEvents(listReceipt, trackedContracts);
+      }
     }
 
     console.log("");
   }
+
+  console.log("Faucet-funding demo buyer wallets...");
+  for (const buyer of buyers) {
+    const claimTx = await stablecoin.connect(buyer).claimFaucet();
+    const claimReceipt = await claimTx.wait();
+    console.log(`  ${buyer.address} claimed ${ethers.formatUnits(await stablecoin.FAUCET_AMOUNT(), 18)} NKR`);
+    logEvents(claimReceipt, trackedContracts);
+  }
+  console.log("");
 
   console.log("Demo data seeded.");
 }

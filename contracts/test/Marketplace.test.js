@@ -304,5 +304,136 @@ describe("Marketplace", function () {
         .to.be.revertedWithCustomError(marketplace, "ListingDoesNotExist")
         .withArgs(999n);
     });
+
+    it("reverts buying from a cancelled listing", async function () {
+      const { marketplace, stablecoin, listingId, buyer, ngo } = await listedFixture();
+
+      await marketplace.connect(ngo).cancelListing(listingId);
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), ethers.MaxUint256);
+
+      await expect(marketplace.connect(buyer).buyCredits(listingId, 1n))
+        .to.be.revertedWithCustomError(marketplace, "ListingNotActive")
+        .withArgs(listingId);
+    });
+  });
+
+  describe("cancelListing", function () {
+    async function listedFixture() {
+      const base = await loadFixture(deployFixture);
+      await base.marketplace.connect(base.ngo).listCredits(base.tokenId, 500n, PRICE_PER_TONNE);
+      return { ...base, listingId: 1n };
+    }
+
+    it("removes the listing and returns the escrowed credits to the seller", async function () {
+      const { marketplace, creditToken, tokenId, listingId, ngo } = await listedFixture();
+
+      await expect(marketplace.connect(ngo).cancelListing(listingId))
+        .to.emit(marketplace, "ListingCancelled")
+        .withArgs(listingId, tokenId, ngo.address, 500n);
+
+      expect(await creditToken.balanceOf(ngo.address, tokenId)).to.equal(TONNES);
+      expect(await creditToken.balanceOf(await marketplace.getAddress(), tokenId)).to.equal(0n);
+
+      const listing = await marketplace.getListing(listingId);
+      expect(listing.active).to.equal(false);
+      expect(listing.amount).to.equal(0n);
+    });
+
+    it("only returns whatever is still unsold when partially bought first", async function () {
+      const { marketplace, creditToken, stablecoin, tokenId, listingId, ngo, buyer } = await listedFixture();
+
+      await stablecoin.connect(buyer).claimFaucet();
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), ethers.MaxUint256);
+      await marketplace.connect(buyer).buyCredits(listingId, 10n);
+
+      await expect(marketplace.connect(ngo).cancelListing(listingId))
+        .to.emit(marketplace, "ListingCancelled")
+        .withArgs(listingId, tokenId, ngo.address, 490n);
+
+      // 10 stayed with the buyer, 490 came back to the seller, none stuck in the marketplace.
+      expect(await creditToken.balanceOf(buyer.address, tokenId)).to.equal(10n);
+      expect(await creditToken.balanceOf(ngo.address, tokenId)).to.equal(TONNES - 10n);
+      expect(await creditToken.balanceOf(await marketplace.getAddress(), tokenId)).to.equal(0n);
+    });
+
+    it("reverts when the caller is not the listing's seller", async function () {
+      const { marketplace, listingId, outsider, ngo } = await listedFixture();
+
+      await expect(marketplace.connect(outsider).cancelListing(listingId))
+        .to.be.revertedWithCustomError(marketplace, "NotListingSeller")
+        .withArgs(outsider.address, ngo.address);
+    });
+
+    it("reverts cancelling the same listing twice", async function () {
+      const { marketplace, listingId, ngo } = await listedFixture();
+
+      await marketplace.connect(ngo).cancelListing(listingId);
+
+      await expect(marketplace.connect(ngo).cancelListing(listingId))
+        .to.be.revertedWithCustomError(marketplace, "ListingNotActive")
+        .withArgs(listingId);
+    });
+
+    it("reverts cancelling an unknown listing", async function () {
+      const { marketplace, ngo } = await listedFixture();
+
+      await expect(marketplace.connect(ngo).cancelListing(999))
+        .to.be.revertedWithCustomError(marketplace, "ListingDoesNotExist")
+        .withArgs(999n);
+    });
+  });
+
+  describe("setSplitBps", function () {
+    it("lets SPLIT_ADMIN_ROLE change the split and emits SplitUpdated", async function () {
+      const { marketplace, admin } = await loadFixture(deployFixture);
+
+      await expect(marketplace.connect(admin).setSplitBps(9_000n, 700n, 300n))
+        .to.emit(marketplace, "SplitUpdated")
+        .withArgs(9_000n, 700n, 300n, admin.address);
+
+      expect(await marketplace.ngoBps()).to.equal(9_000n);
+      expect(await marketplace.platformBps()).to.equal(700n);
+      expect(await marketplace.communityBps()).to.equal(300n);
+    });
+
+    it("applies the new split to purchases made afterwards", async function () {
+      const { marketplace, stablecoin, tokenId, admin, ngo, buyer } = await loadFixture(deployFixture);
+
+      await marketplace.connect(ngo).listCredits(tokenId, 500n, PRICE_PER_TONNE);
+      await marketplace.connect(admin).setSplitBps(9_000n, 700n, 300n);
+
+      await stablecoin.connect(buyer).claimFaucet();
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), ethers.MaxUint256);
+
+      const amount = 10n;
+      const totalPrice = amount * PRICE_PER_TONNE;
+      await marketplace.connect(buyer).buyCredits(1, amount);
+
+      expect(await stablecoin.balanceOf(ngo.address)).to.equal((totalPrice * 9_000n) / 10_000n);
+    });
+
+    it("reverts a split that does not sum to 10,000 bps", async function () {
+      const { marketplace, admin } = await loadFixture(deployFixture);
+
+      await expect(marketplace.connect(admin).setSplitBps(9_000n, 2_000n, 300n))
+        .to.be.revertedWithCustomError(marketplace, "InvalidSplit")
+        .withArgs(11_300n);
+
+      // The rejected call must not have partially applied.
+      expect(await marketplace.ngoBps()).to.equal(NGO_BPS);
+    });
+
+    it("reverts when the caller lacks SPLIT_ADMIN_ROLE", async function () {
+      const { marketplace, outsider, ngo } = await loadFixture(deployFixture);
+      const SPLIT_ADMIN_ROLE = await marketplace.SPLIT_ADMIN_ROLE();
+
+      await expect(marketplace.connect(ngo).setSplitBps(9_000n, 700n, 300n))
+        .to.be.revertedWithCustomError(marketplace, "AccessControlUnauthorizedAccount")
+        .withArgs(ngo.address, SPLIT_ADMIN_ROLE);
+
+      await expect(marketplace.connect(outsider).setSplitBps(9_000n, 700n, 300n))
+        .to.be.revertedWithCustomError(marketplace, "AccessControlUnauthorizedAccount")
+        .withArgs(outsider.address, SPLIT_ADMIN_ROLE);
+    });
   });
 });

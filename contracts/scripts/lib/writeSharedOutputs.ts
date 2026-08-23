@@ -7,7 +7,13 @@ const ADDRESSES_FILE = path.join(SHARED_DIR, "contract-addresses.json");
 const ABIS_DIR = path.join(SHARED_DIR, "abis");
 const ARTIFACTS_DIR = path.join(__dirname, "..", "..", "artifacts", "contracts");
 
-const CONTRACT_NAMES = ["ProjectRegistry", "VerificationRegistry", "CarbonCreditToken"] as const;
+const CONTRACT_NAMES = [
+  "ProjectRegistry",
+  "VerificationRegistry",
+  "CarbonCreditToken",
+  "SimStablecoin",
+  "Marketplace",
+] as const;
 
 interface NetworkDeploymentRecord {
   chainId: number;
@@ -17,13 +23,18 @@ interface NetworkDeploymentRecord {
     ProjectRegistry: string;
     VerificationRegistry: string;
     CarbonCreditToken: string;
+    SimStablecoin: string;
+    Marketplace: string;
   };
   roles: {
     registrar: string;
     verifier: string;
     oracle: string;
+    platformTreasury: string;
+    communityFund: string;
   };
   metadataUri: string;
+  splitBps: { ngo: number; platform: number; community: number };
 }
 
 type AddressesFile = Record<string, NetworkDeploymentRecord>;
@@ -55,9 +66,12 @@ export function writeSharedOutputs(
       ProjectRegistry: deployed.projectRegistryAddress,
       VerificationRegistry: deployed.verificationRegistryAddress,
       CarbonCreditToken: deployed.carbonCreditTokenAddress,
+      SimStablecoin: deployed.simStablecoinAddress,
+      Marketplace: deployed.marketplaceAddress,
     },
     roles: deployed.roles,
     metadataUri: deployed.metadataUri,
+    splitBps: deployed.splitBps,
   };
 
   fs.writeFileSync(ADDRESSES_FILE, `${JSON.stringify(existing, null, 2)}\n`);
