@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from .duplicate import check_duplicate
 from .geofence import LatLng, check_geofence
+from .plausibility import check_plausibility
 
 router = APIRouter(prefix="/photo", tags=["photo verification"])
 
@@ -27,6 +28,11 @@ class DuplicateCheckResponse(BaseModel):
     similarity_score: float
     is_duplicate: bool
     compared_against: int
+
+
+class PlausibilityCheckResponse(BaseModel):
+    plausibility_score: float
+    is_plausible: bool
 
 
 def _parse_boundary(boundary_json: str) -> list[LatLng]:
@@ -105,3 +111,16 @@ async def duplicate_check(
         is_duplicate=result.is_duplicate,
         compared_against=result.compared_against,
     )
+
+
+@router.post("/plausibility-check", response_model=PlausibilityCheckResponse)
+async def plausibility_check(file: UploadFile = File(..., description="The submitted photo.")) -> PlausibilityCheckResponse:
+    """A simple vegetation-color sanity check — not a scene classifier, see plausibility.py."""
+    photo_bytes = await _read_photo(file)
+
+    try:
+        result = check_plausibility(photo_bytes)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return PlausibilityCheckResponse(plausibility_score=result.plausibility_score, is_plausible=result.is_plausible)
