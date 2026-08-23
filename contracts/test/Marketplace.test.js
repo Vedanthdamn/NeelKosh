@@ -194,4 +194,115 @@ describe("Marketplace", function () {
         .withArgs(999n);
     });
   });
+
+  describe("buyCredits", function () {
+    // Kept low enough that a single 10,000 NKR faucet claim can buy out the whole 500t listing.
+    const BUY_PRICE_PER_TONNE = ethers.parseUnits("10", 18); // 10 NKR/tonne
+
+    async function listedFixture() {
+      const base = await loadFixture(deployFixture);
+      await base.marketplace.connect(base.ngo).listCredits(base.tokenId, 500n, BUY_PRICE_PER_TONNE);
+      await base.stablecoin.connect(base.buyer).claimFaucet();
+      return { ...base, listingId: 1n };
+    }
+
+    it("splits payment 3 ways, transfers credits, and emits the full breakdown", async function () {
+      const { marketplace, creditToken, stablecoin, tokenId, listingId, buyer, ngo, platformTreasury, communityFund } =
+        await listedFixture();
+
+      const amount = 50n;
+      const totalPrice = amount * BUY_PRICE_PER_TONNE;
+      const ngoAmount = (totalPrice * NGO_BPS) / 10_000n;
+      const platformAmount = (totalPrice * PLATFORM_BPS) / 10_000n;
+      const communityAmount = totalPrice - ngoAmount - platformAmount;
+
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), totalPrice);
+
+      await expect(marketplace.connect(buyer).buyCredits(listingId, amount))
+        .to.emit(marketplace, "CreditsPurchased")
+        .withArgs(
+          listingId,
+          tokenId,
+          buyer.address,
+          ngo.address,
+          amount,
+          totalPrice,
+          ngoAmount,
+          platformAmount,
+          communityAmount
+        );
+
+      // The 3-way balance split is the load-bearing assertion here.
+      expect(await stablecoin.balanceOf(ngo.address)).to.equal(ngoAmount);
+      expect(await stablecoin.balanceOf(platformTreasury.address)).to.equal(platformAmount);
+      expect(await stablecoin.balanceOf(communityFund.address)).to.equal(communityAmount);
+      // No dust left behind: every wei of the payment landed with one of the three recipients.
+      expect(ngoAmount + platformAmount + communityAmount).to.equal(totalPrice);
+
+      expect(await creditToken.balanceOf(buyer.address, tokenId)).to.equal(amount);
+      expect((await marketplace.getListing(listingId)).amount).to.equal(500n - amount);
+    });
+
+    it("reverts when the buyer has not approved the marketplace", async function () {
+      const { marketplace, stablecoin, listingId, buyer } = await listedFixture();
+
+      // No approve() call — the buyer holds faucet funds but never authorised the pull.
+      await expect(marketplace.connect(buyer).buyCredits(listingId, 50n)).to.be.revertedWithCustomError(
+        stablecoin,
+        "ERC20InsufficientAllowance"
+      );
+    });
+
+    it("reverts when the approval is smaller than the total price", async function () {
+      const { marketplace, stablecoin, listingId, buyer } = await listedFixture();
+
+      const amount = 50n;
+      const totalPrice = amount * BUY_PRICE_PER_TONNE;
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), totalPrice - 1n);
+
+      await expect(
+        marketplace.connect(buyer).buyCredits(listingId, amount)
+      ).to.be.revertedWithCustomError(stablecoin, "ERC20InsufficientAllowance");
+    });
+
+    it("allows buying the same listing across multiple purchases until it is exhausted", async function () {
+      const { marketplace, creditToken, stablecoin, tokenId, listingId, buyer } = await listedFixture();
+
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), ethers.MaxUint256);
+
+      await marketplace.connect(buyer).buyCredits(listingId, 200n);
+      await marketplace.connect(buyer).buyCredits(listingId, 300n);
+
+      expect((await marketplace.getListing(listingId)).amount).to.equal(0n);
+      expect(await creditToken.balanceOf(buyer.address, tokenId)).to.equal(500n);
+    });
+
+    it("reverts buying more than remains in the listing", async function () {
+      const { marketplace, stablecoin, listingId, buyer } = await listedFixture();
+
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), ethers.MaxUint256);
+
+      await expect(marketplace.connect(buyer).buyCredits(listingId, 501n))
+        .to.be.revertedWithCustomError(marketplace, "InsufficientListedAmount")
+        .withArgs(listingId, 500n, 501n);
+    });
+
+    it("reverts buying a zero amount", async function () {
+      const { marketplace, stablecoin, listingId, buyer } = await listedFixture();
+
+      await stablecoin.connect(buyer).approve(await marketplace.getAddress(), ethers.MaxUint256);
+
+      await expect(
+        marketplace.connect(buyer).buyCredits(listingId, 0n)
+      ).to.be.revertedWithCustomError(marketplace, "ZeroAmount");
+    });
+
+    it("reverts buying an unknown listing", async function () {
+      const { marketplace, buyer } = await listedFixture();
+
+      await expect(marketplace.connect(buyer).buyCredits(999, 1n))
+        .to.be.revertedWithCustomError(marketplace, "ListingDoesNotExist")
+        .withArgs(999n);
+    });
+  });
 });

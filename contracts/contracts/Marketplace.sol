@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IProjectRegistry} from "./interfaces/IProjectRegistry.sol";
 import {ICarbonCreditToken} from "./interfaces/ICarbonCreditToken.sol";
 
@@ -16,6 +17,8 @@ import {ICarbonCreditToken} from "./interfaces/ICarbonCreditToken.sol";
 ///      a listing's `amount` is always actually available to buy — the seller cannot transfer
 ///      or re-list the same credits elsewhere out from under a pending listing.
 contract Marketplace is AccessControl, ERC1155Holder {
+    using SafeERC20 for IERC20;
+
     /// @dev Denominator revenue-split percentages are expressed against. Basis points (1/100 of
     ///      a percent) rather than plain percent so the split can be tuned finer than whole
     ///      points without rewriting the type.
@@ -72,12 +75,29 @@ contract Marketplace is AccessControl, ERC1155Holder {
         uint256 pricePerTonne
     );
 
+    /// @notice Emitted on every purchase, carrying the full 3-way split so a buyer or auditor
+    ///         can verify the payout without recomputing it from the bps rates in effect at the
+    ///         time (which may since have been changed by setSplitBps).
+    event CreditsPurchased(
+        uint256 indexed listingId,
+        uint256 indexed tokenId,
+        address indexed buyer,
+        address seller,
+        uint256 amount,
+        uint256 totalPrice,
+        uint256 ngoAmount,
+        uint256 platformAmount,
+        uint256 communityAmount
+    );
+
     error InvalidAddress();
     error InvalidSplit(uint256 totalBps);
     error NotProjectImplementer(address caller, address implementer);
     error ZeroAmount();
     error ZeroPrice();
     error ListingDoesNotExist(uint256 listingId);
+    error ListingNotActive(uint256 listingId);
+    error InsufficientListedAmount(uint256 listingId, uint256 available, uint256 requested);
 
     /// @notice Deploys the marketplace bound to the credit token, payment currency and payout
     ///         split it will use for every purchase.
@@ -162,6 +182,57 @@ contract Marketplace is AccessControl, ERC1155Holder {
         creditToken.safeTransferFrom(msg.sender, address(this), tokenId, amount, "");
 
         emit CreditsListed(listingId, tokenId, msg.sender, amount, pricePerTonne);
+    }
+
+    /// @notice Buys some or all of a listing's remaining credits at its listed price.
+    /// @dev Splits `amount * pricePerTonne` three ways and pays each recipient directly out of
+    ///      the buyer's balance in one call, rather than collecting the full amount here first —
+    ///      that means this contract never custodies payment currency, only the escrowed
+    ///      credits, so there is nothing for a compromised or buggy Marketplace to run off with
+    ///      beyond what a purchase is already moving. Requires the buyer to have called
+    ///      `stablecoin.approve(marketplace, totalPrice)` (or more) beforehand.
+    ///
+    ///      The NGO and platform shares are each `totalPrice * bps / 10_000`, which truncates
+    ///      towards zero. The community share is deliberately computed as the remainder
+    ///      (`totalPrice - ngoAmount - platformAmount`) rather than its own multiplication, so
+    ///      any rounding dust from the two truncated divisions lands in the community fund
+    ///      instead of being silently stuck in this contract or left unaccounted for — and the
+    ///      three shares are therefore guaranteed to sum to exactly `totalPrice` on every
+    ///      purchase, with no reconciliation needed.
+    /// @param listingId Listing to buy from.
+    /// @param amount Tonnes to buy; must not exceed the listing's remaining amount.
+    function buyCredits(uint256 listingId, uint256 amount) external {
+        Listing storage listing = _requireListing(listingId);
+        if (!listing.active) revert ListingNotActive(listingId);
+        if (amount == 0) revert ZeroAmount();
+        if (amount > listing.amount) {
+            revert InsufficientListedAmount(listingId, listing.amount, amount);
+        }
+
+        uint256 totalPrice = amount * listing.pricePerTonne;
+        uint256 ngoAmount = (totalPrice * ngoBps) / BPS_DENOMINATOR;
+        uint256 platformAmount = (totalPrice * platformBps) / BPS_DENOMINATOR;
+        uint256 communityAmount = totalPrice - ngoAmount - platformAmount;
+
+        listing.amount -= amount;
+
+        stablecoin.safeTransferFrom(msg.sender, listing.seller, ngoAmount);
+        stablecoin.safeTransferFrom(msg.sender, platformTreasury, platformAmount);
+        stablecoin.safeTransferFrom(msg.sender, communityFund, communityAmount);
+
+        creditToken.safeTransferFrom(address(this), msg.sender, listing.tokenId, amount, "");
+
+        emit CreditsPurchased(
+            listingId,
+            listing.tokenId,
+            msg.sender,
+            listing.seller,
+            amount,
+            totalPrice,
+            ngoAmount,
+            platformAmount,
+            communityAmount
+        );
     }
 
     /// @notice Reads a listing.
