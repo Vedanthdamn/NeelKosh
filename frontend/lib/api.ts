@@ -4,6 +4,15 @@
 export type Ecosystem = "Mangrove" | "Seagrass" | "Saltmarsh";
 export type ProjectStatus = "Active" | "Suspended";
 export type SubmissionStatus = "Pending" | "Approved" | "Rejected" | "Issued";
+export type RoleName = "NGO" | "VERIFIER" | "BUYER" | "ADMIN";
+
+export interface SessionUser {
+  id: number;
+  walletAddress: string;
+  role: RoleName;
+  organizationName: string | null;
+  createdAt: string;
+}
 
 export interface LatLng {
   lat: number;
@@ -143,8 +152,10 @@ function backendUrl(): string {
   return process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${backendUrl()}${path}`, { cache: "no-store" });
+async function getJson<T>(path: string, token?: string): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${backendUrl()}${path}`, { cache: "no-store", headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new ApiError(body.error || `Request to ${path} failed`, response.status);
@@ -152,10 +163,12 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json();
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, token?: string): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${backendUrl()}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
@@ -214,6 +227,55 @@ export async function fetchListing(listingId: number | string): Promise<Marketpl
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
+}
+
+/** Step 1 of Sign-In With Ethereum: request the one-time message this wallet must sign. */
+export async function requestNonce(walletAddress: string): Promise<string> {
+  const { message } = await postJson<{ message: string }>("/api/auth/nonce", { walletAddress });
+  return message;
+}
+
+/** Step 2: submit the signature, get back a session token (and the user row, if one exists). */
+export async function verifySignature(
+  walletAddress: string,
+  signature: string
+): Promise<{ token: string; registered: boolean; user: SessionUser | null }> {
+  return postJson("/api/auth/verify", { walletAddress, signature });
+}
+
+/** First-time onboarding for an already-verified wallet. */
+export async function registerUser(role: RoleName, token: string): Promise<{ token: string; user: SessionUser }> {
+  return postJson("/api/auth/register", { role }, token);
+}
+
+export interface PurchaseResult {
+  listingId: number;
+  tokenId: string;
+  buyerAddress: string;
+  sellerAddress: string;
+  amount: number;
+  totalPrice: string;
+  ngoAmount: string;
+  platformAmount: string;
+  communityAmount: string;
+  txHash: string;
+}
+
+/** Buys some or all of a listing. Requires the buyer to have already approved Marketplace to
+ *  spend at least totalPrice of SimStablecoin — see lib/contracts.ts, that step is a real
+ *  transaction signed by the buyer's own wallet, not something this backend call can do for them. */
+export async function purchaseCredits(listingId: number, amount: number, token: string): Promise<PurchaseResult> {
+  return postJson("/api/marketplace/purchase", { listingId, amount }, token);
+}
+
+export interface FaucetResult {
+  buyerAddress: string;
+  amount: string;
+  txHash: string;
+}
+
+export async function claimFaucet(token: string): Promise<FaucetResult> {
+  return postJson("/api/marketplace/faucet", {}, token);
 }
 
 export async function registerProject(input: RegisterProjectInput) {
