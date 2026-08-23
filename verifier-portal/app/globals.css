@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  /* Operational console palette — deliberately not the public site's water/sand/mudflat
+     register. Near-black slate surfaces, one functional accent, and semantic colors reserved
+     strictly for fraud-check/status signal, never decoration. */
+  --color-slate-950: #0a0d10;
+  --color-slate-900: #12161b;
+  --color-slate-850: #171c22;
+  --color-slate-800: #1e252c;
+  --color-slate-700: #2a333c;
+  --color-slate-600: #3a4650;
+  --color-slate-500: #58666f;
+  --color-slate-400: #8b98a3;
+  --color-slate-300: #b3bfc8;
+  --color-slate-200: #d3dbe0;
+  --color-slate-100: #e9edf0;
+
+  /* The one interactive accent: links, primary actions, focus state. */
+  --color-accent-400: #5eb8ff;
+  --color-accent-500: #2f97e6;
+  --color-accent-600: #1d78c2;
+
+  /* Semantic signal — fraud-check indicators and submission status only. */
+  --color-signal-green-500: #2fb35d;
+  --color-signal-green-400: #46cc75;
+  --color-signal-amber-500: #d9a520;
+  --color-signal-amber-400: #eec04a;
+  --color-signal-red-500: #d9483f;
+  --color-signal-red-400: #ef645a;
+
+  --font-body: var(--font-plex-sans);
+  --font-data: var(--font-plex-mono);
+}
+
+body {
+  font-family: var(--font-body);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--color-accent-500);
+  color: var(--color-slate-950);
+}
+
+.leaflet-container {
+  font-family: var(--font-body);
+  background: var(--color-slate-800);
+}
