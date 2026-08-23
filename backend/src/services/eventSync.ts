@@ -16,7 +16,7 @@
 import { ethers } from "ethers";
 import { prisma } from "../db";
 import { provider } from "../blockchain/provider";
-import { projectRegistry, verificationRegistry, carbonCreditToken } from "../blockchain/contracts";
+import { projectRegistry, verificationRegistry, carbonCreditToken, marketplace } from "../blockchain/contracts";
 import { config } from "../config";
 import { ecosystemFromInt, projectStatusFromInt } from "../utils/ecosystem";
 import { fromMicrodegree } from "../utils/geo";
@@ -216,6 +216,53 @@ async function handleTransferSingle(log: ethers.Log) {
   });
 }
 
+/**
+ * A listing can be created directly on chain without going through routes/marketplace.ts's
+ * write-through (that route only covers this backend's own implementer-wallet pool listing —
+ * seed-demo-data.ts, for instance, lists straight from a contracts script). CreditsListed is
+ * this cache's real source of truth for a listing's existence, the same way ProjectRegistered
+ * is for OnChainProject; the route's write-through is only a latency optimisation on top.
+ */
+async function handleCreditsListed(log: ethers.Log) {
+  const parsed = marketplace.interface.parseLog(log);
+  if (!parsed) return;
+
+  const listingId = Number(parsed.args.listingId);
+  const tokenId = (parsed.args.tokenId as bigint).toString();
+  const [projectId, vintage]: [bigint, bigint] = await carbonCreditToken.decodeTokenId(parsed.args.tokenId);
+
+  await prisma.marketplaceListing.upsert({
+    where: { listingId },
+    create: {
+      listingId,
+      tokenId,
+      projectId: Number(projectId),
+      vintage: Number(vintage),
+      sellerAddress: parsed.args.seller,
+      amount: Number(parsed.args.amount),
+      pricePerTonne: (parsed.args.pricePerTonne as bigint).toString(),
+      active: true,
+      listTxHash: log.transactionHash,
+    },
+    update: {
+      amount: Number(parsed.args.amount),
+      pricePerTonne: (parsed.args.pricePerTonne as bigint).toString(),
+      active: true,
+      listTxHash: log.transactionHash,
+    },
+  });
+}
+
+async function handleListingCancelled(log: ethers.Log) {
+  const parsed = marketplace.interface.parseLog(log);
+  if (!parsed) return;
+
+  await prisma.marketplaceListing.updateMany({
+    where: { listingId: Number(parsed.args.listingId) },
+    data: { active: false, amount: 0 },
+  });
+}
+
 type LogHandler = (log: ethers.Log) => Promise<void>;
 
 interface WatchedEvent {
@@ -234,6 +281,8 @@ function watchedEvents(): WatchedEvent[] {
     { contract: carbonCreditToken, eventName: "CreditsMinted", handler: handleCreditsMinted },
     { contract: carbonCreditToken, eventName: "RetirementRecord", handler: handleRetirementRecord },
     { contract: carbonCreditToken, eventName: "TransferSingle", handler: handleTransferSingle },
+    { contract: marketplace, eventName: "CreditsListed", handler: handleCreditsListed },
+    { contract: marketplace, eventName: "ListingCancelled", handler: handleListingCancelled },
   ];
 }
 

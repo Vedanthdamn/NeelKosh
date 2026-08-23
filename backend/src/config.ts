@@ -88,6 +88,8 @@ export const config = {
     ProjectRegistry: string;
     VerificationRegistry: string;
     CarbonCreditToken: string;
+    SimStablecoin: string;
+    Marketplace: string;
   },
   wallets: {
     registrarPrivateKey: resolvePrivateKey("REGISTRAR_PRIVATE_KEY", LOCAL_TEST_KEYS.registrar),

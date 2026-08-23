@@ -157,6 +157,63 @@ model TransferEvent {
   @@index([tokenId])
 }
 
+/// Cache of Marketplace.Listing state, kept in sync from CreditsListed (write-through at
+/// creation, see routes/marketplace.ts) and CreditsPurchased (event-sync reconciles `amount`
+/// from the chain's own accounting — see services/eventSync.ts). projectId and vintage are
+/// decoded off the tokenId once at write time rather than re-derived by every reader.
+model MarketplaceListing {
+  listingId      Int      @id
+  tokenId        String
+  projectId      Int
+  vintage        Int
+  sellerAddress  String
+  /// Tonnes still available to buy. Decreases as buyCredits fills the listing; see
+  /// Marketplace.sol's own note on why a fully sold listing stays `active` rather than flipping
+  /// to false — "sold out" and "withdrawn by the seller" are different histories worth keeping
+  /// distinguishable.
+  amount         Int
+  /// Price per tonne in the stablecoin's smallest unit (18 decimals), as a decimal string —
+  /// too large for a 32-bit SQLite Int, same reasoning as CreditBatch.totalMinted.
+  pricePerTonne  String
+  active         Boolean  @default(true)
+  listTxHash     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([sellerAddress])
+  @@index([active])
+}
+
+/// Permanent record of one purchase, mirroring Marketplace's CreditsPurchased event. Both the
+/// purchase route (write-through) and event-sync write here — see MarketplaceListing's doc
+/// comment for why both exist. logIndex mirrors TransferEvent's identity choice: txHash alone
+/// isn't guaranteed unique if this table ever needs to record more than one purchase per
+/// transaction.
+model MarketplacePurchase {
+  id              Int      @id @default(autoincrement())
+  listingId       Int
+  tokenId         String
+  projectId       Int
+  vintage         Int
+  buyerAddress    String
+  sellerAddress   String
+  amount          Int
+  /// totalPrice and the three split amounts are decimal strings in the stablecoin's smallest
+  /// unit, same reasoning as MarketplaceListing.pricePerTonne.
+  totalPrice      String
+  ngoAmount       String
+  platformAmount  String
+  communityAmount String
+  txHash          String
+  logIndex        Int
+  purchasedAt     DateTime
+
+  @@unique([txHash, logIndex])
+  @@index([buyerAddress])
+  @@index([listingId])
+}
+
 /// Tracks how far the event-sync service has read into each network's chain, so a restart
 /// resumes from where it left off instead of rescanning from the deployment block.
 model SyncState {

@@ -5,6 +5,7 @@ import { prisma } from "./db";
 import { projectsRouter } from "./routes/projects";
 import { mrvRouter } from "./routes/mrv";
 import { creditsRouter } from "./routes/credits";
+import { marketplaceRouter } from "./routes/marketplace";
 import { authRouter } from "./routes/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import { attachUser } from "./middleware/auth";
@@ -26,6 +27,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/mrv", mrvRouter);
 app.use("/api/credits", creditsRouter);
+app.use("/api/marketplace", marketplaceRouter);
 
 app.use(errorHandler);
 
