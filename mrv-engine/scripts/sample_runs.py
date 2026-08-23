@@ -18,7 +18,7 @@ SAMPLE_PROJECTS = [
     {"project_id": "kutch-gj-4", "area_hectares": 40.0, "species": "Mixed"},
 ]
 
-NUM_PERIODS = 12  # quarterly readings over 3 years
+NUM_PERIODS = 20  # quarterly readings over 5 years — enough to see the full slow/fast/plateau shape
 
 
 def main() -> None:

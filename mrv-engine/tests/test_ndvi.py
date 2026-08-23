@@ -35,6 +35,19 @@ def test_deterministic_for_the_same_project_id():
     assert a == b
 
 
+def test_earlier_periods_are_stable_as_more_periods_are_requested():
+    # This is the invariant a vintage-by-vintage MRV workflow actually depends on: period 4's
+    # NDVI must be the same value whether it was the last reading returned (num_periods=5) or a
+    # reading in the middle of a longer series (num_periods=10). If the curve's own shape shifted
+    # with num_periods, submitting vintage N+1 would retroactively change what vintage N's
+    # satellite reading "was" — comparing consecutive vintages to compute incremental
+    # sequestration would then be comparing against a number that silently moved.
+    short_series = generate_ndvi_timeseries("stability-project", date(2022, 1, 1), num_periods=5)
+    long_series = generate_ndvi_timeseries("stability-project", date(2022, 1, 1), num_periods=10)
+    for period_index in range(5):
+        assert short_series[period_index] == long_series[period_index]
+
+
 def test_different_projects_get_different_curves():
     a = generate_ndvi_timeseries("project-x", date(2022, 1, 1), num_periods=10)
     b = generate_ndvi_timeseries("project-y", date(2022, 1, 1), num_periods=10)

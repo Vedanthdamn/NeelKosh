@@ -131,14 +131,20 @@ def generate_ndvi_timeseries(
     rng = np.random.default_rng(_seed_from_project_id(project_id))
 
     # Curve parameters vary a little per project (a restoration site isn't a fixed template),
-    # but stay within realistic bounds for mangrove restoration.
+    # but stay within realistic bounds for mangrove restoration. Critically, none of these depend
+    # on num_periods: the curve is a fixed function of period_index and project_id alone, so
+    # asking for more periods later (as real reporting periods accumulate, one vintage at a time)
+    # never reshapes NDVI values already returned for earlier periods. A caller compares vintage
+    # N to vintage N-1 by calling this twice with num_periods=N-1 and num_periods=N; that only
+    # works if period_index=3 means the same thing both times.
     ndvi_start = rng.uniform(0.08, 0.20)  # bare mudflat / freshly planted seedlings
     ndvi_plateau = rng.uniform(0.70, 0.85)  # healthy closed-canopy mangrove
-    # Steepness and midpoint control how quickly the curve transitions from start to plateau.
-    # Midpoint as a fraction of num_periods keeps the transition scaled to however many periods
-    # were requested, rather than a fixed period count that would look wrong for a short series.
-    midpoint = num_periods * rng.uniform(0.35, 0.55)
-    steepness = rng.uniform(0.35, 0.55) * (10 / max(num_periods, 1))
+    # midpoint: period index at which the curve is halfway to plateau. steepness: how sharply it
+    # transitions. Both are in fixed units of "periods" (quarters, by default), calibrated to a
+    # restoration timescale of roughly 2-4 years to near-plateau — independent of how many
+    # periods any single request happens to ask for.
+    midpoint = rng.uniform(6, 12)
+    steepness = rng.uniform(0.35, 0.55)
 
     noise_std = 0.02  # small per-reading measurement/seasonal jitter
 
