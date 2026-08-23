@@ -188,6 +188,34 @@ export async function fetchCreditHistory(tokenId: string): Promise<CreditHistory
   }
 }
 
+export interface MarketplaceListing {
+  listingId: number;
+  tokenId: string;
+  projectId: number;
+  vintage: number;
+  sellerAddress: string;
+  amount: number;
+  pricePerTonne: string;
+  active: boolean;
+  listTxHash: string;
+  createdAt: string;
+  project: { projectId: number; name: string; ecosystem: Ecosystem; boundary: LatLng[] } | null;
+}
+
+export async function fetchListings(): Promise<MarketplaceListing[]> {
+  const data = await getJson<{ listings: MarketplaceListing[] }>("/api/marketplace/listings");
+  return data.listings;
+}
+
+export async function fetchListing(listingId: number | string): Promise<MarketplaceListing | null> {
+  try {
+    return await getJson<MarketplaceListing>(`/api/marketplace/listings/${listingId}`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 export async function registerProject(input: RegisterProjectInput) {
   // Response shape matches ProjectSummary exactly (projectId and registrationTxHash included).
   return postJson<ProjectSummary>("/api/projects", input);

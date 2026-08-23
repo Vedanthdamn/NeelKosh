@@ -1,3 +1,5 @@
+import { ethers } from "ethers";
+
 export function truncateAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 2) return address;
   return `${address.slice(0, chars + 2)}…${address.slice(-chars)}`;
@@ -15,6 +17,11 @@ export function formatNumber(value: number | string): string {
 
 export function formatTonnes(value: number | string): string {
   return `${formatNumber(value)} tCO2e`;
+}
+
+/** Formats a smallest-unit (18-decimal) SimStablecoin amount as a whole-NKR figure. */
+export function formatNKR(smallestUnits: string): string {
+  return `₹${formatNumber(Math.round(Number(ethers.formatUnits(smallestUnits, 18))))}`;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" });

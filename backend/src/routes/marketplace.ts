@@ -9,8 +9,52 @@ import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { logStage } from "../utils/logger";
+import { parseJsonField } from "../utils/serialize";
+import type { LatLng } from "../utils/geo";
 
 export const marketplaceRouter = Router();
+
+interface ListingDetail {
+  listingId: number;
+  tokenId: string;
+  projectId: number;
+  vintage: number;
+  sellerAddress: string;
+  amount: number;
+  pricePerTonne: string;
+  active: boolean;
+  listTxHash: string;
+  createdAt: Date;
+  project: { projectId: number; name: string; ecosystem: string; boundary: LatLng[] } | null;
+}
+
+function serializeListing(
+  listing: {
+    listingId: number;
+    tokenId: string;
+    projectId: number;
+    vintage: number;
+    sellerAddress: string;
+    amount: number;
+    pricePerTonne: string;
+    active: boolean;
+    listTxHash: string;
+    createdAt: Date;
+  },
+  project: { projectId: number; name: string; ecosystem: string; boundary: string } | null
+): ListingDetail {
+  return {
+    ...listing,
+    project: project
+      ? {
+          projectId: project.projectId,
+          name: project.name,
+          ecosystem: project.ecosystem,
+          boundary: parseJsonField<LatLng[]>(project.boundary, []),
+        }
+      : null,
+  };
+}
 
 const listSchema = z.object({
   projectId: z.coerce.number().int().positive(),
@@ -161,22 +205,34 @@ marketplaceRouter.get(
     const projectsById = new Map(projects.map((project) => [project.projectId, project]));
 
     res.json({
-      listings: listings.map((listing) => {
-        const project = projectsById.get(listing.projectId);
-        return {
-          listingId: listing.listingId,
-          tokenId: listing.tokenId,
-          projectId: listing.projectId,
-          vintage: listing.vintage,
-          sellerAddress: listing.sellerAddress,
-          amount: listing.amount,
-          pricePerTonne: listing.pricePerTonne,
-          listTxHash: listing.listTxHash,
-          createdAt: listing.createdAt,
-          project: project ? { projectId: project.projectId, name: project.name, ecosystem: project.ecosystem } : null,
-        };
-      }),
+      listings: listings.map((listing) => serializeListing(listing, projectsById.get(listing.projectId) ?? null)),
     });
+  })
+);
+
+/**
+ * One listing's full detail regardless of state — the buy-flow page's data source. Deliberately
+ * not restricted to active-with-stock like /listings is, for the same reason GET
+ * /api/mrv/:submissionId isn't restricted to Pending: a buyer mid-flow on a listing that just
+ * sold out or was cancelled by the seller should see that plainly, not a generic 404.
+ */
+marketplaceRouter.get(
+  "/listings/:listingId",
+  asyncHandler(async (req, res) => {
+    const listingId = Number(req.params.listingId);
+    if (!Number.isInteger(listingId) || listingId <= 0) {
+      res.status(400).json({ error: "listingId must be a positive integer" });
+      return;
+    }
+
+    const listing = await prisma.marketplaceListing.findUnique({ where: { listingId } });
+    if (!listing) {
+      res.status(404).json({ error: `No listing with id ${listingId}` });
+      return;
+    }
+
+    const project = await prisma.onChainProject.findUnique({ where: { projectId: listing.projectId } });
+    res.json(serializeListing(listing, project));
   })
 );
 
