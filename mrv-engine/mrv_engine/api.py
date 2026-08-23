@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from .biomass import SPECIES_COEFFICIENTS, estimate_biomass_from_ndvi
 from .carbon import CARBON_FRACTION_OF_BIOMASS, estimate_carbon_sequestered
 from .ndvi import DEFAULT_PERIOD_DAYS, generate_ndvi_timeseries
+from .photo.routes import router as photo_router
 
 app = FastAPI(
     title="NeelKosh MRV Engine",
@@ -24,6 +25,7 @@ app = FastAPI(
     "All NDVI data is fabricated — see ndvi.py for why and what a real pipeline would do instead.",
     version="0.1.0",
 )
+app.include_router(photo_router)
 
 # Restoration project start used when a caller doesn't supply one. Real projects have a real
 # registration date on chain (ProjectRegistry.registeredAt); this is only a fallback so the
