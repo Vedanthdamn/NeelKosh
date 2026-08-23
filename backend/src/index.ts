@@ -6,6 +6,7 @@ import { projectsRouter } from "./routes/projects";
 import { mrvRouter } from "./routes/mrv";
 import { creditsRouter } from "./routes/credits";
 import { errorHandler } from "./middleware/errorHandler";
+import { startEventSync } from "./services/eventSync";
 
 const app = express();
 app.use(cors());
@@ -24,4 +25,10 @@ app.use(errorHandler);
 
 app.listen(config.port, () => {
   console.log(`NeelKosh backend listening on :${config.port} (network: ${config.network})`);
+
+  // Sync runs alongside the API rather than blocking startup: a chain that's slow or briefly
+  // unreachable shouldn't stop the server from serving already-cached data.
+  startEventSync().catch((error) => {
+    console.error("[event-sync] failed to start:", error);
+  });
 });
