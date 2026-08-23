@@ -7,13 +7,19 @@ import { fetchProjects, fetchProject } from "@/lib/api";
 
 export const metadata = { title: "Verify a credit — NeelKosh" };
 
+// A convenience link, not core functionality: if the backend is briefly unreachable, the search
+// page below should still render and work — it just won't have an example to suggest.
 async function findExample(): Promise<{ tokenId: string; projectName: string } | null> {
-  const projects = await fetchProjects();
-  for (const project of projects) {
-    const detail = await fetchProject(project.projectId);
-    if (detail && detail.credits.batches.length > 0) {
-      return { tokenId: detail.credits.batches[0].tokenId, projectName: project.name };
+  try {
+    const projects = await fetchProjects();
+    for (const project of projects) {
+      const detail = await fetchProject(project.projectId);
+      if (detail && detail.credits.batches.length > 0) {
+        return { tokenId: detail.credits.batches[0].tokenId, projectName: project.name };
+      }
     }
+  } catch (error) {
+    console.error("Failed to find an example credit:", error);
   }
   return null;
 }

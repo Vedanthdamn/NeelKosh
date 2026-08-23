@@ -41,10 +41,18 @@ export default async function ProjectDetailPage(props: PageProps<"/projects/[id]
   const { project, reportingPeriods, credits } = detail;
   const areaHectares = polygonAreaHectares(project.boundary);
 
-  const historyResults = await Promise.all(credits.batches.map((batch) => fetchCreditHistory(batch.tokenId)));
+  // allSettled, not all: one token's history call flaking (a transient backend hiccup) should
+  // degrade to a shorter lifecycle table, not blow away a project detail that already loaded
+  // successfully by throwing the whole page into the error boundary.
+  const historyResults = await Promise.allSettled(credits.batches.map((batch) => fetchCreditHistory(batch.tokenId)));
 
   const lifecycleEvents: LifecycleEvent[] = [];
-  historyResults.forEach((history, index) => {
+  historyResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(`Failed to load history for token ${credits.batches[index].tokenId}:`, result.reason);
+      return;
+    }
+    const history = result.value;
     if (!history) return;
     const batch = credits.batches[index];
     const retirementByTx = new Map(history.retirements.map((r) => [r.txHash, r]));
