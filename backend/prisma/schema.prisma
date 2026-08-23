@@ -1,0 +1,135 @@
+// Off-chain data model for the NeelKosh backend.
+//
+// Two kinds of tables live here. ProjectMetadata is genuinely off-chain data (description,
+// story, photos) that has no on-chain equivalent. Everything else — OnChainProject, MrvReport's
+// status fields, CreditBatch, RetirementRecord, TransferEvent — is a cache of on-chain state,
+// kept fresh by the event-sync service so the frontend never has to query the chain directly
+// for a list view. The chain itself remains the source of truth; these tables exist for speed.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/// Off-chain descriptive content for a project. Has no on-chain equivalent — this is exactly
+/// the kind of thing a registry keeps off-chain because it's editorial, not evidentiary.
+model ProjectMetadata {
+  projectId   Int      @id
+  description String?
+  story       String?
+  /// JSON-encoded string[] of photo URLs. Prisma's SQLite connector has no Json scalar type,
+  /// so this is stored as a JSON string and parsed at the application layer.
+  photos      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Cache of ProjectRegistry state, kept in sync from ProjectRegistered / ProjectStatusChanged
+/// events. Lets project lists be served from SQLite instead of one chain call per project.
+model OnChainProject {
+  projectId          Int      @id
+  name                String
+  ecosystem           String
+  implementerAddress  String
+  status              String
+  registeredAt        DateTime
+  /// JSON-encoded array of decimal-degree {lat, lng} points, converted from the contract's
+  /// microdegree integers for direct use by mapping libraries.
+  boundary            String
+  registrationTxHash  String
+  updatedAt           DateTime @updatedAt
+
+  @@index([implementerAddress])
+}
+
+/// An MRV claim: the off-chain report in full, plus the on-chain submission it produced.
+/// reportPayload is the exact JSON that was hashed into dataHash — that hash is what a verifier
+/// (or an auditor) checks the archived report against.
+model MrvReport {
+  id                 Int       @id @default(autoincrement())
+  submissionId       Int       @unique
+  projectId          Int
+  vintage             Int
+  tonnesCO2           Int
+  methodology         String
+  supportingDataRef   String
+  /// JSON-encoded string: the exact report body that was hashed into dataHash.
+  reportPayload       String
+  dataHash            String
+  submittedByAddress  String
+  submittedAt         DateTime  @default(now())
+  submitTxHash        String
+  /// Mirrors VerificationRegistry.SubmissionStatus: Pending | Approved | Rejected | Issued.
+  status               String    @default("Pending")
+  verifierAddress      String?
+  verifiedAt           DateTime?
+  verifyTxHash         String?
+  tokenId              String?
+  mintTxHash           String?
+
+  @@index([projectId])
+}
+
+/// Cache of an issued CarbonCreditToken batch, one row per token id. totalMinted/totalRetired
+/// mirror uint256 accumulators on chain and are stored as decimal strings, not Int, so a large
+/// running total can never silently truncate.
+model CreditBatch {
+  tokenId          String   @id
+  projectId         Int
+  vintage           Int
+  verifierAddress   String
+  dataHash          String
+  totalMinted       String
+  totalRetired      String
+  issuedAt          DateTime
+  mintTxHash        String
+  updatedAt         DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+/// Permanent retirement certificates, mirroring CarbonCreditToken's on-chain Retirement records
+/// and RetirementRecord events.
+model RetirementRecord {
+  id                  Int      @id @default(autoincrement())
+  onChainRetirementId Int      @unique
+  tokenId             String
+  amount              String
+  retiredByAddress    String
+  reason              String
+  retiredAt           DateTime
+  txHash              String
+
+  @@index([tokenId])
+}
+
+/// Cache of ERC-1155 TransferSingle events for a token, covering mints (from the zero address),
+/// ordinary transfers, and retirements (burns, to the zero address). Backs the "prove this
+/// credit is real" history view without walking chain logs on every request.
+model TransferEvent {
+  id              Int      @id @default(autoincrement())
+  tokenId          String
+  operatorAddress  String
+  fromAddress      String
+  toAddress        String
+  amount           String
+  txHash           String
+  logIndex         Int
+  blockNumber      Int
+  occurredAt       DateTime
+
+  @@unique([txHash, logIndex])
+  @@index([tokenId])
+}
+
+/// Tracks how far the event-sync service has read into each network's chain, so a restart
+/// resumes from where it left off instead of rescanning from the deployment block.
+model SyncState {
+  network         String   @id
+  lastSyncedBlock Int
+  updatedAt       DateTime @updatedAt
+}
