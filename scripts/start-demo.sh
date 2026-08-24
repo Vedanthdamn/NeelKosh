@@ -7,6 +7,7 @@
 #   4. mrv-engine                (mrv-engine/) — standalone, no dependency on the others
 #   5. seed demo data            (scripts/seed-demo.mjs) — needs backend + mrv-engine running
 #   6. frontend                  (frontend/) — needs the backend running
+#   7. verifier-portal           (verifier-portal/) — needs the backend running
 #
 # Each service logs to .demo-logs/<service>.log. Stop everything with scripts/stop-demo.sh,
 # which finds these same processes by the command line they were started with (not a PID file —
@@ -48,6 +49,7 @@ preflight() {
   [ -d "$ROOT_DIR/contracts/node_modules" ] || { echo "contracts/node_modules missing — run: cd contracts && npm install"; missing=1; }
   [ -d "$ROOT_DIR/backend/node_modules" ] || { echo "backend/node_modules missing — run: cd backend && npm install"; missing=1; }
   [ -d "$ROOT_DIR/frontend/node_modules" ] || { echo "frontend/node_modules missing — run: cd frontend && npm install"; missing=1; }
+  [ -d "$ROOT_DIR/verifier-portal/node_modules" ] || { echo "verifier-portal/node_modules missing — run: cd verifier-portal && npm install"; missing=1; }
   [ -d "$ROOT_DIR/mrv-engine/.venv" ] || { echo "mrv-engine/.venv missing — see mrv-engine/README.md"; missing=1; }
   if [ "$missing" -eq 1 ]; then
     echo
@@ -89,16 +91,22 @@ echo "[5/6] Seeding demo data ..."
 (cd "$ROOT_DIR" && node scripts/seed-demo.mjs 2>&1 | tee "$LOG_DIR/seed.log")
 
 echo
-echo "[6/6] Starting frontend ..."
-(cd "$ROOT_DIR/frontend" && npx next dev > "$LOG_DIR/frontend.log" 2>&1 &)
+echo "[6/7] Starting frontend ..."
+(cd "$ROOT_DIR/frontend" && npx next dev -p 3000 > "$LOG_DIR/frontend.log" 2>&1 &)
 wait_for_port frontend "http://127.0.0.1:3000" 60
 
 echo
+echo "[7/7] Starting verifier-portal ..."
+(cd "$ROOT_DIR/verifier-portal" && npx next dev -p 3001 > "$LOG_DIR/verifier-portal.log" 2>&1 &)
+wait_for_port verifier-portal "http://127.0.0.1:3001" 60
+
+echo
 echo "== Everything is up =="
-echo "  Frontend:    http://localhost:3000"
-echo "  Backend:     http://localhost:4000/health"
-echo "  MRV engine:  http://localhost:8088/docs"
-echo "  Hardhat RPC: http://localhost:8545"
+echo "  Frontend:         http://localhost:3000"
+echo "  Verifier portal:  http://localhost:3001"
+echo "  Backend:          http://localhost:4000/health"
+echo "  MRV engine:       http://localhost:8088/docs"
+echo "  Hardhat RPC:      http://localhost:8545"
 echo
 echo "Logs:  $LOG_DIR/"
 echo "Stop:  scripts/stop-demo.sh"
