@@ -307,6 +307,36 @@ async function main() {
     results.push({ projectId: registered.projectId, name: project.name, mintedTokenIds });
   }
 
+  // List part of three batches on the marketplace, and faucet-fund the two buyer accounts, so
+  // /marketplace and the buy flow have real data on a completely fresh boot instead of the demo
+  // presenter needing to know to do this manually before showing it to anyone.
+  const listings = [
+    { resultIndex: 0, amount: 500, pricePerTonneNKR: "450" }, // Sundarbans
+    { resultIndex: 1, amount: 200, pricePerTonneNKR: "500" }, // Pichavaram
+    { resultIndex: 2, amount: 300, pricePerTonneNKR: "600" }, // Bhitarkanika
+  ];
+  for (const { resultIndex, amount, pricePerTonneNKR } of listings) {
+    const result = results[resultIndex];
+    const project = PROJECTS[resultIndex];
+    if (!result?.mintedTokenIds.length) continue;
+    const lastPeriod = project.periods[project.periods.length - 1];
+    const ngoToken = tokensByAddress.get(project.implementerAddress.toLowerCase());
+    const listing = await postJson(
+      `${BACKEND}/api/marketplace/listings`,
+      { projectId: result.projectId, vintage: lastPeriod.vintage, amount, pricePerTonneNKR },
+      ngoToken
+    );
+    console.log(`listed ${amount} of project ${result.projectId} (vintage ${lastPeriod.vintage}) at ${pricePerTonneNKR} NKR/t: listing #${listing.listingId}`);
+  }
+
+  const buyerAccounts = DEMO_ACCOUNTS.filter((a) => a.role === "BUYER");
+  for (const account of buyerAccounts) {
+    const address = new ethers.Wallet(account.privateKey).address;
+    const token = tokensByAddress.get(address.toLowerCase());
+    const faucet = await postJson(`${BACKEND}/api/marketplace/faucet`, {}, token);
+    console.log(`faucet-funded ${account.label} (${address}): ${ethers.formatUnits(faucet.amount, 18)} NKR`);
+  }
+
   // Retire a portion of two batches so the verify page and lifecycle table have real history.
   const first = results[0];
   if (first?.mintedTokenIds.length > 0) {
