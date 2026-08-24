@@ -190,9 +190,17 @@ mrvRouter.get(
  * on-chain submission succeeds, and the result is stored alongside this report — purely
  * advisory, visible to the verifier later, never blocking or deciding the submission itself. See
  * services/photoVerification.ts for exactly why, and what happens if mrv-engine is unreachable.
+ *
+ * Gated to NGO, and specifically to the project's own implementer — requireRole only proves
+ * "this caller is *an* NGO," not "this caller runs this project," same distinction as the
+ * marketplace listing route below. Without the second check, any signed-in NGO (or, before this
+ * was added, literally anyone — this route had no auth check at all) could file a claim against
+ * a project it doesn't run, since the backend resolves the signing wallet from the project's
+ * on-chain implementer address rather than from the caller's identity.
  */
 mrvRouter.post(
   "/submit",
+  requireRole(["NGO"]),
   upload.single("photo"),
   validateBody(submitMrvSchema),
   asyncHandler(async (req, res) => {
@@ -201,6 +209,11 @@ mrvRouter.post(
     const project = await prisma.onChainProject.findUnique({ where: { projectId: body.projectId } });
     if (!project) {
       res.status(404).json({ error: `No project with id ${body.projectId}` });
+      return;
+    }
+
+    if (req.user!.walletAddress.toLowerCase() !== project.implementerAddress.toLowerCase()) {
+      res.status(403).json({ error: `Only ${project.implementerAddress} may submit MRV claims for this project.` });
       return;
     }
 

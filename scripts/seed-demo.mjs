@@ -282,21 +282,25 @@ async function main() {
       const rawTonnes = calc.tonnes_co2_incremental ?? calc.tonnes_co2;
       const tonnesCO2 = Math.max(1, Math.round(rawTonnes));
 
-      const submitted = await postJson(`${BACKEND}/api/mrv/submit`, {
-        projectId: registered.projectId,
-        vintage: period.vintage,
-        tonnesCO2,
-        methodology: "Sentinel-2 NDVI biomass regression (VM0033-aligned), simulated",
-        supportingDataRef: `mrv-engine synthetic composite, reporting_period=${period.reportingPeriod}`,
-        reportData: {
-          ndvi: calc.ndvi,
-          agb_per_hectare: calc.agb_per_hectare,
-          area_hectares: project.areaHectares,
-          species: project.species,
-          reporting_period: period.reportingPeriod,
-          simulated: true,
+      const submitted = await postJson(
+        `${BACKEND}/api/mrv/submit`,
+        {
+          projectId: registered.projectId,
+          vintage: period.vintage,
+          tonnesCO2,
+          methodology: "Sentinel-2 NDVI biomass regression (VM0033-aligned), simulated",
+          supportingDataRef: `mrv-engine synthetic composite, reporting_period=${period.reportingPeriod}`,
+          reportData: {
+            ndvi: calc.ndvi,
+            agb_per_hectare: calc.agb_per_hectare,
+            area_hectares: project.areaHectares,
+            species: project.species,
+            reporting_period: period.reportingPeriod,
+            simulated: true,
+          },
         },
-      });
+        ngoToken
+      );
       console.log(`  submitted vintage ${period.vintage}: ndvi=${calc.ndvi} tonnesCO2=${tonnesCO2} (submission ${submitted.submissionId})`);
 
       const verified = await postJson(`${BACKEND}/api/mrv/${submitted.submissionId}/verify`, {}, verifierToken);
