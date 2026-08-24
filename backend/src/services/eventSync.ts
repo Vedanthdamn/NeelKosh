@@ -384,23 +384,37 @@ export async function startEventSync(): Promise<void> {
     update: { lastSyncedBlock: head },
   });
 
-  for (const { contract, eventName, handler } of watchedEvents()) {
-    await contract.on(contract.filters[eventName](), async (...args: unknown[]) => {
-      // ethers v6 passes the decoded event args first and a ContractEventPayload last.
-      const payload = args[args.length - 1] as ethers.ContractEventPayload;
-      try {
-        await handler(payload.log);
+  // Live sync is driven off new-block notifications rather than one `contract.on(filter, ...)`
+  // subscription per watched event (eleven separate eth_newFilter/eth_getFilterChanges polls
+  // against Hardhat, one per event type). That approach turned out to be genuinely fragile in
+  // practice: under a burst of rapid transactions (many blocks minted close together, exactly
+  // what a live demo produces), ethers' filter-polling subscriber started throwing "results is
+  // not iterable" on every poll and never recovered — meaning the live listener silently stopped
+  // picking up new events for the rest of the process's life, with nothing in the logs loud
+  // enough to notice mid-demo. Block-number polling uses a different, simpler ethers code path
+  // (no per-topic filter to go stale) and reuses backfillRange — the exact same, already-tested
+  // function the startup backfill above uses — for each new block, so there's one code path for
+  // "catch up on some range of blocks" instead of two.
+  //
+  // Processed strictly one block at a time via a rolling promise chain: Hardhat's auto-mine can
+  // fire "block" notifications faster than backfillRange finishes, and processing them out of
+  // order (or concurrently) could interleave writes to syncState.lastSyncedBlock incorrectly.
+  let chain: Promise<void> = Promise.resolve();
+  provider.on("block", (blockNumber: number) => {
+    chain = chain
+      .then(async () => {
+        await backfillRange(blockNumber, blockNumber);
         await prisma.syncState.upsert({
           where: { network: config.network },
-          create: { network: config.network, lastSyncedBlock: payload.log.blockNumber },
-          update: { lastSyncedBlock: payload.log.blockNumber },
+          create: { network: config.network, lastSyncedBlock: blockNumber },
+          update: { lastSyncedBlock: blockNumber },
         });
-      } catch (error) {
-        // A failed handler must not kill the listener; the next backfill will retry this block.
-        console.error(`[event-sync] failed handling ${eventName}:`, error);
-      }
-    });
-  }
+      })
+      .catch((error) => {
+        // A failed block must not kill the listener; the next backfill on startup will retry it.
+        console.error(`[event-sync] failed processing block ${blockNumber}:`, error);
+      });
+  });
 
   console.log(`[event-sync] listening for live events on ${config.network}`);
 }
