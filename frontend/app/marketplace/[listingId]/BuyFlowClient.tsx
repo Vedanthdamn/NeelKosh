@@ -35,6 +35,7 @@ export function BuyFlowClient({ listingId }: { listingId: string }) {
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [chainOk, setChainOk] = useState<boolean | null>(null);
+  const [walletMissing, setWalletMissing] = useState(false);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [chainBusy, setChainBusy] = useState<"faucet" | "approve" | "purchase" | null>(null);
@@ -70,8 +71,10 @@ export function BuyFlowClient({ listingId }: { listingId: string }) {
         setChainOk(chainId === expectedChainId);
         if (chainId === expectedChainId) refreshChainState(session.user.walletAddress);
       })
-      .catch(() => {
-        if (!cancelled) setChainOk(false);
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof NoWalletError) setWalletMissing(true);
+        else setChainOk(false);
       });
     return () => {
       cancelled = true;
@@ -298,6 +301,11 @@ export function BuyFlowClient({ listingId }: { listingId: string }) {
                   </button>
                   {connectError ? <p className="mt-3 text-sm text-coral-600">{connectError}</p> : null}
                 </div>
+              ) : walletMissing ? (
+                <p className="mt-3 text-sm text-coral-600">
+                  No wallet extension found — you&rsquo;re signed in, but this session's wallet
+                  isn&rsquo;t connected in this browser. Install MetaMask (or a compatible wallet) and reload this page.
+                </p>
               ) : chainOk === false ? (
                 <p className="mt-3 text-sm text-coral-600">
                   Your wallet is on the wrong network. Switch to chain id {expectedChainId.toString()} and reload this page.
