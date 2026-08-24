@@ -126,7 +126,7 @@ export default function MyCreditsPage() {
               <p className="mt-3 text-sm text-ink-500">Loading…</p>
             ) : holdings.length === 0 ? (
               <p className="mt-3 rounded-xl border border-dashed border-mudflat-200 px-6 py-10 text-center text-sm text-ink-500">
-                This wallet doesn&rsquo;t hold any credits yet — buy some from the{" "}
+                This wallet doesn&rsquo;t hold any credits yet. Buy some from the{" "}
                 <Link href="/marketplace" className="text-teal-600 underline underline-offset-2">
                   marketplace
                 </Link>
@@ -220,7 +220,7 @@ function HoldingRow({
           {holding.project ? <EcosystemBadge ecosystem={holding.project.ecosystem} /> : null}
           <p className="mt-2 font-medium text-ink-900">{holding.project?.name ?? `Token ${holding.tokenId}`}</p>
           <p className="font-data mt-0.5 text-xs text-ink-500">
-            token {holding.tokenId} · vintage {holding.vintage ?? "—"}
+            token {holding.tokenId} · vintage {holding.vintage ?? "n/a"}
           </p>
         </div>
         <div className="text-right">

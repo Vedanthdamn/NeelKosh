@@ -265,7 +265,7 @@ export function BuyFlowClient({ listingId }: { listingId: string }) {
 
         {!listing.active || listing.amount === 0 ? (
           <p className="mt-6 rounded-lg border border-coral-500/30 bg-coral-500/10 px-4 py-3 text-sm text-coral-600">
-            This listing is no longer available — it was either fully sold or withdrawn by the seller.
+            This listing is no longer available. It was either fully sold or withdrawn by the seller.
           </p>
         ) : (
           <>
@@ -303,7 +303,7 @@ export function BuyFlowClient({ listingId }: { listingId: string }) {
                 </div>
               ) : walletMissing ? (
                 <p className="mt-3 text-sm text-coral-600">
-                  No wallet extension found — you&rsquo;re signed in, but this session's wallet
+                  No wallet extension found. You&rsquo;re signed in, but this session's wallet
                   isn&rsquo;t connected in this browser. Install MetaMask (or a compatible wallet) and reload this page.
                 </p>
               ) : chainOk === false ? (

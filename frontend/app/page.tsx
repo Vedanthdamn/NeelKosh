@@ -14,7 +14,7 @@ const PIPELINE = [
   {
     number: "02",
     title: "Submit",
-    body: "Field and satellite data become a hashed MRV report — the exact evidence a claim rests on, fingerprinted and timestamped.",
+    body: "Field and satellite data become a hashed MRV report: the exact evidence a claim rests on, fingerprinted and timestamped.",
   },
   {
     number: "03",
@@ -24,7 +24,7 @@ const PIPELINE = [
   {
     number: "04",
     title: "Mint & retire",
-    body: "Only an approved claim can mint credits — for the exact tonnage the verifier signed off on. Retiring one burns it: it can never be claimed twice.",
+    body: "Only an approved claim can mint credits, and only for the exact tonnage the verifier signed off on. Retiring one burns it: it can never be claimed twice.",
   },
 ];
 
@@ -52,8 +52,8 @@ export default async function LandingPage() {
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-foam-200">
               NeelKosh puts India&rsquo;s mangrove, seagrass and saltmarsh restoration on a public
-              ledger — from the first satellite reading to the moment a credit is retired. No
-              paper trail to lose. No claim you can&rsquo;t trace.
+              ledger, tracking everything from the first satellite reading to the moment a credit
+              is retired. No paper trail to lose. No claim you can&rsquo;t trace.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
@@ -86,7 +86,7 @@ export default async function LandingPage() {
             <p className="mt-5 text-lg leading-relaxed text-foam-200">
               Most carbon registries still work like this: a project claims a number, a
               consultant signs a PDF, and buyers take it on faith. The underlying satellite
-              data, the verifier&rsquo;s reasoning, the exact report a credit was minted from —
+              data, the verifier&rsquo;s reasoning, and the exact report a credit was minted from:
               none of it is available for anyone outside the transaction to check. When a claim
               turns out to be wrong, there&rsquo;s no record showing where it went wrong.
             </p>

@@ -24,7 +24,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NeelKosh — Blue Carbon Registry",
+  title: "NeelKosh · Blue Carbon Registry",
   description:
     "A transparent, on-chain registry for blue carbon restoration projects: every credit traceable from satellite reading to retirement.",
 };

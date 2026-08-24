@@ -5,7 +5,7 @@ import { RootMotif } from "@/components/RootMotif";
 import { TokenSearchBar } from "@/components/TokenSearchBar";
 import { fetchProjects, fetchProject } from "@/lib/api";
 
-export const metadata = { title: "Verify a credit — NeelKosh" };
+export const metadata = { title: "Verify a credit · NeelKosh" };
 
 // A convenience link, not core functionality: if the backend is briefly unreachable, the search
 // page below should still render and work — it just won't have an example to suggest.

@@ -28,7 +28,7 @@ export default function LoginPage() {
       if (!result.registered || !result.user) {
         setError(
           `This wallet (${walletAddress}) isn't registered with NeelKosh yet. A verifier account has to be ` +
-            "created before it can sign in here — ask whoever administers the registry to register it."
+            "created before it can sign in here. Ask whoever administers the registry to register it."
         );
         return;
       }
@@ -81,7 +81,7 @@ export default function LoginPage() {
           ) : null}
 
           <p className="mt-4 text-center text-xs text-slate-500">
-            No transaction is sent — this only signs a one-time message to prove wallet control.
+            No transaction is sent. This only signs a one-time message to prove wallet control.
           </p>
         </div>
       </div>

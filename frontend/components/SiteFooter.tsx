@@ -20,8 +20,8 @@ export function SiteFooter({ register }: { register: Register }) {
               <span className="font-display text-base font-medium">NeelKosh</span>
             </div>
             <p className="mt-3 text-sm leading-relaxed">
-              A blue carbon registry where every credit&rsquo;s chain of custody — from satellite reading
-              to retirement — is on chain and independently checkable.
+              A blue carbon registry where every credit&rsquo;s chain of custody, from satellite reading
+              to retirement, is on chain and independently checkable.
             </p>
           </div>
 
@@ -49,8 +49,7 @@ export function SiteFooter({ register }: { register: Register }) {
         </div>
 
         <p className={`mt-10 border-t pt-6 text-xs ${isWater ? "border-water-800 text-foam-400" : "border-mudflat-200 text-ink-500"}`}>
-          Prototype built for Smart India Hackathon. This instance runs against a local demo chain — the
-          data shown is illustrative, not a live production registry.
+          Prototype built for Smart India Hackathon.
         </p>
       </div>
     </footer>

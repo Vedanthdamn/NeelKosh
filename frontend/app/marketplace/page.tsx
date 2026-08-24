@@ -4,7 +4,7 @@ import { ListingCard } from "@/components/ListingCard";
 import { RootMark } from "@/components/RootMotif";
 import { fetchListings } from "@/lib/api";
 
-export const metadata = { title: "Marketplace — NeelKosh" };
+export const metadata = { title: "Marketplace · NeelKosh" };
 
 export default async function MarketplacePage() {
   const listings = await fetchListings();
@@ -18,7 +18,7 @@ export default async function MarketplacePage() {
         <h1 className="mt-3 font-display text-4xl font-medium sm:text-5xl">Buy verified blue carbon credits</h1>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-ink-700">
           Every listing below is credits an implementing organisation already holds, issued
-          against an independently approved MRV claim — see any project&rsquo;s page for the full
+          against an independently approved MRV claim. See any project&rsquo;s page for the full
           chain of custody behind it.
         </p>
       </section>

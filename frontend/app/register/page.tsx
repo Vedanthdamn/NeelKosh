@@ -164,7 +164,7 @@ export default function RegisterPage() {
         <h1 className="mt-3 font-display text-4xl font-medium sm:text-5xl">Put a restoration site on the record</h1>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-ink-700">
           This writes directly to ProjectRegistry on chain. Once registered, the project&rsquo;s
-          boundary and implementer are permanent — only status can change later.
+          boundary and implementer are permanent, and only status can change later.
         </p>
       </section>
 
@@ -172,7 +172,7 @@ export default function RegisterPage() {
         <section className="mx-auto max-w-6xl px-6 pb-24">
           <div className="rounded-xl border border-mudflat-200 bg-white p-8 text-center">
             <p className="mb-4 text-sm text-ink-700">
-              Registration is gated to the NGO role — connect the wallet your organisation signs in with.
+              Registration is gated to the NGO role. Connect the wallet your organisation signs in with.
             </p>
             <button
               type="button"
@@ -240,7 +240,7 @@ export default function RegisterPage() {
               />
             </Field>
 
-            <Field label="Story" hint="Optional. The longer context — who's involved, how it started.">
+            <Field label="Story" hint="Optional. The longer context: who's involved, how it started.">
               <textarea
                 value={story}
                 onChange={(event) => setStory(event.target.value)}

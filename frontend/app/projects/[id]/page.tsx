@@ -14,7 +14,7 @@ import { formatDate, formatNumber } from "@/lib/format";
 export async function generateMetadata(props: PageProps<"/projects/[id]">) {
   const { id } = await props.params;
   const detail = await fetchProject(id);
-  return { title: detail ? `${detail.project.name} — NeelKosh` : `Project ${id} — NeelKosh` };
+  return { title: detail ? `${detail.project.name} · NeelKosh` : `Project ${id} · NeelKosh` };
 }
 
 export default async function ProjectDetailPage(props: PageProps<"/projects/[id]">) {

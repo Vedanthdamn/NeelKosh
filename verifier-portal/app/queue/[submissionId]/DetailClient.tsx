@@ -147,7 +147,7 @@ function Detail({ submissionId }: { submissionId: string }) {
                 <div className="flex h-40 flex-col items-center justify-center gap-2 rounded border border-dashed border-slate-700 bg-slate-950 px-4 text-center">
                   <p className="text-sm text-slate-400">Photo not stored</p>
                   <p className="max-w-xs text-xs text-slate-600">
-                    This demo pipeline never persists a submitted photo — only the verification
+                    This demo pipeline never persists a submitted photo, only the verification
                     result below, computed from it at submission time.
                   </p>
                 </div>
@@ -167,7 +167,7 @@ function Detail({ submissionId }: { submissionId: string }) {
                   <div>
                     <dt className="text-[11px] tracking-wide text-slate-500 uppercase">Distance from boundary</dt>
                     <dd className="mt-0.5 text-slate-200">
-                      {photo.distanceFromBoundary !== null ? `${Math.round(photo.distanceFromBoundary).toLocaleString()} m` : "—"}
+                      {photo.distanceFromBoundary !== null ? `${Math.round(photo.distanceFromBoundary).toLocaleString()} m` : "n/a"}
                     </dd>
                   </div>
                 </dl>
@@ -331,7 +331,7 @@ function DecisionSummary({ submission }: { submission: SubmissionDetail }) {
   return (
     <div className="mt-6 rounded border border-signal-green-500/30 bg-signal-green-500/10 p-4">
       <p className="text-sm font-medium text-signal-green-400">
-        {submission.status === "Issued" ? "Approved — credits minted" : "Approved"}
+        {submission.status === "Issued" ? "Approved, credits minted" : "Approved"}
       </p>
       {submission.tokenId ? (
         <p className="font-data mt-1 text-xs text-slate-400">token {submission.tokenId}</p>

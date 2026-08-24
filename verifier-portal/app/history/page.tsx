@@ -90,7 +90,7 @@ function History() {
                       #{submission.submissionId}
                     </Link>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      {submission.verifiedAt ? formatDateTime(submission.verifiedAt) : "—"}
+                      {submission.verifiedAt ? formatDateTime(submission.verifiedAt) : "n/a"}
                     </p>
                   </td>
                   <td className="px-4 py-3 text-slate-200">{submission.project?.name ?? `Project #${submission.projectId}`}</td>
@@ -101,7 +101,7 @@ function History() {
                       {submission.status}
                     </span>
                   </td>
-                  <td className="max-w-[240px] px-4 py-3 text-xs text-slate-400">{submission.rejectionReason ?? "—"}</td>
+                  <td className="max-w-[240px] px-4 py-3 text-xs text-slate-400">{submission.rejectionReason ?? "n/a"}</td>
                 </tr>
               ))}
             </tbody>

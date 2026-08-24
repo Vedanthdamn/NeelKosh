@@ -12,7 +12,7 @@ import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 
 export async function generateMetadata(props: PageProps<"/verify/[tokenId]">) {
   const { tokenId } = await props.params;
-  return { title: `Token ${tokenId} — NeelKosh` };
+  return { title: `Token ${tokenId} · NeelKosh` };
 }
 
 export default async function VerifyResultPage(props: PageProps<"/verify/[tokenId]">) {
@@ -26,7 +26,7 @@ export default async function VerifyResultPage(props: PageProps<"/verify/[tokenI
         <div className="mx-auto flex flex-1 max-w-xl flex-col items-center justify-center gap-5 px-6 text-center">
           <RootMark className="h-10 w-10 text-sand-300" />
           <h1 className="font-display text-2xl font-medium">No credit exists with token ID {tokenId}</h1>
-          <p className="text-foam-300">Check the number and try again — token IDs are exact.</p>
+          <p className="text-foam-300">Check the number and try again. Token IDs are exact.</p>
           <div className="mt-2 w-full">
             <TokenSearchBar />
           </div>
@@ -83,7 +83,7 @@ export default async function VerifyResultPage(props: PageProps<"/verify/[tokenI
           <p className="font-data mt-3 text-lg break-all text-sand-200 sm:text-xl">{history.batch.dataHash}</p>
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-foam-300">
             This is the keccak256 hash of the MRV report this credit was minted against. Anyone can
-            recompute it from the archived report and confirm it matches exactly — change a single
+            recompute it from the archived report and confirm it matches exactly. Change a single
             number in that report and this hash would come out completely different.
           </p>
 

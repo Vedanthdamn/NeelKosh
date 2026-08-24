@@ -5,7 +5,7 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { RootMark } from "@/components/RootMotif";
 import { fetchProjects } from "@/lib/api";
 
-export const metadata = { title: "Projects — NeelKosh" };
+export const metadata = { title: "Projects · NeelKosh" };
 
 export default async function ProjectsPage() {
   const projects = await fetchProjects();
