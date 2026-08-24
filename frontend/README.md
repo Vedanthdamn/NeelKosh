@@ -29,13 +29,22 @@ needs — everything else comes from the backend at request time.
 
 ## Pages
 
-| Route | Reads from |
-| --- | --- |
-| `/` | `GET /api/projects` + `GET /api/projects/:id` (fanned out for aggregate totals) |
-| `/projects` | `GET /api/projects` |
-| `/projects/[id]` | `GET /api/projects/:id` |
-| `/verify`, `/verify/[tokenId]` | `GET /api/credits/:tokenId/history` |
-| `/register` | `POST /api/projects` |
+| Route | Reads from | Wallet sign-in required |
+| --- | --- | --- |
+| `/` | `GET /api/projects` + `GET /api/projects/:id` (fanned out for aggregate totals) | no |
+| `/projects` | `GET /api/projects` | no |
+| `/projects/[id]` | `GET /api/projects/:id` | no |
+| `/verify`, `/verify/[tokenId]` | `GET /api/credits/:tokenId/history` | no |
+| `/register` | `POST /api/projects` | yes (NGO) |
+| `/marketplace` | `GET /api/marketplace/listings` | no (browsing); yes to buy |
+| `/marketplace/[listingId]` | `GET /api/marketplace/listings/:id`, faucet/approve/`POST /api/marketplace/purchase` | yes (BUYER) |
+| `/my-credits` | `GET /api/credits/holdings/:address`, `POST /api/credits/:tokenId/retire` | yes (BUYER) |
+
+Pages marked "wallet sign-in required" gate their form behind `lib/auth.ts`'s `useSession()`:
+connect a wallet (`lib/wallet.ts`), sign a one-time nonce, and a first-time wallet is
+auto-registered under that page's expected role. See the root README's "Wallet-based auth"
+section for the underlying flow, which this frontend, `verifier-portal`, and
+`scripts/seed-demo.mjs` all drive against the same backend endpoints.
 
 ## Notes
 
