@@ -56,6 +56,16 @@ preflight() {
     echo "Install the missing pieces above, then re-run this script."
     exit 1
   fi
+
+  # backend/.env is gitignored (never committed) and DATABASE_URL has no in-code fallback — unlike
+  # the demo wallet keys, which default to Hardhat's well-known local test keys when unset, Prisma
+  # refuses to start at all without this file. A fresh clone has no reason to have created it yet,
+  # so create it here rather than fail preflight over a file whose correct contents are already
+  # sitting in .env.example.
+  if [ ! -f "$ROOT_DIR/backend/.env" ]; then
+    cp "$ROOT_DIR/backend/.env.example" "$ROOT_DIR/backend/.env"
+    echo "created backend/.env from backend/.env.example (first run on this machine)"
+  fi
 }
 
 echo "== NeelKosh demo startup =="
