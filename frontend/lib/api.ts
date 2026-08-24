@@ -314,9 +314,9 @@ export async function retireCredits(tokenId: string, amount: number, retirementR
   return postJson(`/api/credits/${tokenId}/retire`, { amount, retirementReason, holderAddress });
 }
 
-export async function registerProject(input: RegisterProjectInput) {
+export async function registerProject(input: RegisterProjectInput, token: string) {
   // Response shape matches ProjectSummary exactly (projectId and registrationTxHash included).
-  return postJson<ProjectSummary>("/api/projects", input);
+  return postJson<ProjectSummary>("/api/projects", input, token);
 }
 
 /**

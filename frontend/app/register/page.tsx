@@ -5,10 +5,20 @@ import { useMemo, useState, type FormEvent } from "react";
 import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { PolygonDrawMap } from "@/components/PolygonDrawMap";
-import { ApiError, registerProject, type Ecosystem, type LatLng } from "@/lib/api";
+import { useSession } from "@/lib/auth";
+import { connectWallet, signMessage, NoWalletError } from "@/lib/wallet";
+import {
+  ApiError,
+  registerProject,
+  requestNonce,
+  verifySignature,
+  registerUser,
+  type Ecosystem,
+  type LatLng,
+} from "@/lib/api";
 import { ECOSYSTEM_NAMES } from "@/lib/ecosystem";
 import { polygonAreaHectares } from "@/lib/geo";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, truncateAddress } from "@/lib/format";
 
 const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 
@@ -20,6 +30,9 @@ interface FormErrors {
 }
 
 export default function RegisterPage() {
+  const { session, setSession } = useSession();
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [ecosystem, setEcosystem] = useState<Ecosystem | "">("");
   const [implementerAddress, setImplementerAddress] = useState("");
@@ -45,8 +58,41 @@ export default function RegisterPage() {
     return next;
   }
 
+  async function handleConnect() {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const walletAddress = await connectWallet();
+      const message = await requestNonce(walletAddress);
+      const signature = await signMessage(message);
+      const verified = await verifySignature(walletAddress, signature);
+
+      if (!verified.registered || !verified.user) {
+        const registered = await registerUser("NGO", verified.token);
+        setSession({ token: registered.token, user: registered.user });
+        return;
+      }
+      if (verified.user.role !== "NGO") {
+        setConnectError(
+          `This wallet is registered as ${verified.user.role}, not NGO. Connect a different wallet to register a project.`
+        );
+        return;
+      }
+      setSession({ token: verified.token, user: verified.user });
+    } catch (err) {
+      if (err instanceof NoWalletError) setConnectError(err.message);
+      else if (err instanceof ApiError) setConnectError(err.message);
+      else if (err instanceof Error && /rejected|denied/i.test(err.message)) setConnectError("Wallet request was rejected.");
+      else setConnectError("Could not connect. Check the browser console for details.");
+      console.error(err);
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!session) return;
     const validationErrors = validate();
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
@@ -59,15 +105,18 @@ export default function RegisterPage() {
         .map((line) => line.trim())
         .filter(Boolean);
 
-      const response = await registerProject({
-        name: name.trim(),
-        ecosystem: ecosystem as Ecosystem,
-        implementerAddress: implementerAddress.trim(),
-        boundary,
-        description: description.trim() || undefined,
-        story: story.trim() || undefined,
-        photos: photos.length > 0 ? photos : undefined,
-      });
+      const response = await registerProject(
+        {
+          name: name.trim(),
+          ecosystem: ecosystem as Ecosystem,
+          implementerAddress: implementerAddress.trim(),
+          boundary,
+          description: description.trim() || undefined,
+          story: story.trim() || undefined,
+          photos: photos.length > 0 ? photos : undefined,
+        },
+        session.token
+      );
       setResult({ projectId: response.projectId, registrationTxHash: response.registrationTxHash });
     } catch (error) {
       setSubmitError(error instanceof ApiError ? error.message : "Something went wrong registering this project.");
@@ -119,7 +168,30 @@ export default function RegisterPage() {
         </p>
       </section>
 
-      <form onSubmit={handleSubmit} className="mx-auto max-w-6xl px-6 pb-24">
+      {!session ? (
+        <section className="mx-auto max-w-6xl px-6 pb-24">
+          <div className="rounded-xl border border-mudflat-200 bg-white p-8 text-center">
+            <p className="mb-4 text-sm text-ink-700">
+              Registration is gated to the NGO role — connect the wallet your organisation signs in with.
+            </p>
+            <button
+              type="button"
+              onClick={handleConnect}
+              disabled={connecting}
+              className="rounded-full bg-water-900 px-6 py-3 text-sm font-semibold text-mudflat-50 hover:bg-water-700 disabled:opacity-60"
+            >
+              {connecting ? "Connecting…" : "Connect wallet"}
+            </button>
+            {connectError ? <p className="mt-4 text-sm text-coral-600">{connectError}</p> : null}
+          </div>
+        </section>
+      ) : (
+        <>
+          <p className="font-data mx-auto max-w-6xl px-6 text-xs text-ink-500">
+            connected as {truncateAddress(session.user.walletAddress)}
+          </p>
+
+          <form onSubmit={handleSubmit} className="mx-auto max-w-6xl px-6 pt-4 pb-24">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="flex flex-col gap-6">
             <Field label="Project name" error={errors.name}>
@@ -235,7 +307,9 @@ export default function RegisterPage() {
         >
           {submitting ? "Registering on chain…" : "Register project"}
         </button>
-      </form>
+          </form>
+        </>
+      )}
 
       <SiteFooter register="mudflat" />
     </div>
