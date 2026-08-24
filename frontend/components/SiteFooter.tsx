@@ -47,10 +47,6 @@ export function SiteFooter({ register }: { register: Register }) {
             </div>
           </nav>
         </div>
-
-        <p className={`mt-10 border-t pt-6 text-xs ${isWater ? "border-water-800 text-foam-400" : "border-mudflat-200 text-ink-500"}`}>
-          Prototype built for Smart India Hackathon.
-        </p>
       </div>
     </footer>
   );
