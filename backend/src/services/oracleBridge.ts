@@ -25,7 +25,7 @@
 
 import { prisma } from "../db";
 import { verificationRegistry, verificationRegistryAsVerifier, carbonCreditTokenAsOracle } from "../blockchain/contracts";
-import { verifierWallet, oracleWallet } from "../blockchain/wallets";
+import { verifierWallet, oracleWallet, nonceManagerFor, sendWithNonceRetry } from "../blockchain/wallets";
 import { logStage } from "../utils/logger";
 
 export interface OracleVerificationResult {
@@ -61,7 +61,9 @@ export async function runOracleVerification(submissionId: number): Promise<Oracl
     submitter: submission.submitter,
   });
 
-  const approveTx = await verificationRegistryAsVerifier.approveVerification(submissionId);
+  const approveTx = await sendWithNonceRetry(nonceManagerFor(verifierWallet), () =>
+    verificationRegistryAsVerifier.approveVerification(submissionId)
+  );
   const approveReceipt = await approveTx.wait();
 
   logStage("VERIFY", "Approved on chain", { txHash: approveReceipt.hash });
@@ -78,7 +80,9 @@ export async function runOracleVerification(submissionId: number): Promise<Oracl
 
   logStage("MINT", `Oracle ${oracleWallet.address} issuing credits against the approved claim`);
 
-  const mintTx = await carbonCreditTokenAsOracle.mintCredits(projectId, vintage, claimedTonnes, verifierWallet.address);
+  const mintTx = await sendWithNonceRetry(nonceManagerFor(oracleWallet), () =>
+    carbonCreditTokenAsOracle.mintCredits(projectId, vintage, claimedTonnes, verifierWallet.address)
+  );
   const mintReceipt = await mintTx.wait();
 
   const tokenId: bigint = await carbonCreditTokenAsOracle.encodeTokenId(projectId, vintage);

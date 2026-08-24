@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { provider } from "./provider";
 import { config } from "../config";
-import { registrarWallet, verifierWallet, oracleWallet } from "./wallets";
+import { registrarWallet, verifierWallet, oracleWallet, nonceManagerFor } from "./wallets";
 
 function loadAbi(contractName: string) {
   const abiPath = path.join(config.sharedDir, "abis", `${contractName}.json`);
@@ -33,9 +33,11 @@ export const carbonCreditToken = new ethers.Contract(
 export const simStablecoin = new ethers.Contract(config.contracts.SimStablecoin, simStablecoinAbi, provider);
 export const marketplace = new ethers.Contract(config.contracts.Marketplace, marketplaceAbi, provider);
 
-export const projectRegistryAsRegistrar = projectRegistry.connect(registrarWallet) as ethers.Contract;
-export const verificationRegistryAsVerifier = verificationRegistry.connect(verifierWallet) as ethers.Contract;
-export const carbonCreditTokenAsOracle = carbonCreditToken.connect(oracleWallet) as ethers.Contract;
+// Connected via nonceManagerFor rather than the raw wallet — see wallets.ts for why sending two
+// transactions from the same wallet without it can intermittently fail with a stale nonce.
+export const projectRegistryAsRegistrar = projectRegistry.connect(nonceManagerFor(registrarWallet)) as ethers.Contract;
+export const verificationRegistryAsVerifier = verificationRegistry.connect(nonceManagerFor(verifierWallet)) as ethers.Contract;
+export const carbonCreditTokenAsOracle = carbonCreditToken.connect(nonceManagerFor(oracleWallet)) as ethers.Contract;
 // Marketplace and SimStablecoin have no route-agnostic role-bound instance: listCredits signs as
 // whichever implementer lists, and buyCredits/claimFaucet sign as whichever buyer calls — see
 // routes/marketplace.ts, which connects the resolved per-request wallet itself.

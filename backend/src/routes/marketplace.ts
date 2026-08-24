@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import { z } from "zod";
 import { prisma } from "../db";
 import { carbonCreditToken, marketplace, simStablecoin } from "../blockchain/contracts";
-import { findImplementerWallet, findBuyerWallet } from "../blockchain/wallets";
+import { findImplementerWallet, findBuyerWallet, nonceManagerFor, sendWithNonceRetry } from "../blockchain/wallets";
 import { config } from "../config";
 import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
@@ -122,21 +122,15 @@ marketplaceRouter.post(
       config.contracts.Marketplace
     );
 
-    // This route can send two sequential transactions from the same wallet (approve, then
-    // list) within one request — nothing else in this backend does that. Leaving the nonce to
-    // each call's own auto-population is what a single transaction always does safely elsewhere
-    // here, but back to back on one wallet it races: the provider's nonce lookup for the second
-    // send can return a stale count taken just before the first transaction's receipt actually
-    // landed. Pinning both nonces up front from one fetch removes the race entirely.
-    let nextNonce = await implementerWallet.getNonce("pending");
+    const implementerNonceManager = nonceManagerFor(implementerWallet);
 
     if (!alreadyApproved) {
-      const approveTx = await (carbonCreditToken.connect(implementerWallet) as ethers.Contract).setApprovalForAll(
-        config.contracts.Marketplace,
-        true,
-        { nonce: nextNonce }
+      const approveTx = await sendWithNonceRetry(implementerNonceManager, () =>
+        (carbonCreditToken.connect(implementerNonceManager) as ethers.Contract).setApprovalForAll(
+          config.contracts.Marketplace,
+          true
+        )
       );
-      nextNonce += 1;
       await approveTx.wait();
       logStage("MARKETPLACE", "Approved marketplace for ERC-1155 escrow", { implementer: implementerWallet.address });
     }
@@ -149,9 +143,11 @@ marketplaceRouter.post(
       pricePerTonneNKR: body.pricePerTonneNKR,
     });
 
-    const marketplaceAsSeller = marketplace.connect(implementerWallet) as ethers.Contract;
+    const marketplaceAsSeller = marketplace.connect(implementerNonceManager) as ethers.Contract;
     const listingId: bigint = await marketplaceAsSeller.listCredits.staticCall(tokenId, body.amount, pricePerTonne);
-    const tx = await marketplaceAsSeller.listCredits(tokenId, body.amount, pricePerTonne, { nonce: nextNonce });
+    const tx = await sendWithNonceRetry(implementerNonceManager, () =>
+      marketplaceAsSeller.listCredits(tokenId, body.amount, pricePerTonne)
+    );
     const receipt = await tx.wait();
 
     logStage("MARKETPLACE", "Listed on chain", { listingId: listingId.toString(), txHash: receipt.hash });
@@ -309,8 +305,14 @@ marketplaceRouter.post(
       totalPriceNKR: ethers.formatUnits(totalPrice, 18),
     });
 
-    const marketplaceAsBuyer = marketplace.connect(buyerWallet) as ethers.Contract;
-    const tx = await marketplaceAsBuyer.buyCredits(body.listingId, body.amount);
+    const buyerNonceManager = nonceManagerFor(buyerWallet);
+    const marketplaceAsBuyer = marketplace.connect(buyerNonceManager) as ethers.Contract;
+    // The buyer's own wallet just sent a real approve transaction for this same address
+    // (see the allowance check above) — this backend's NonceManager never saw it, so its first
+    // nonce lookup for this wallet can still land stale. sendWithNonceRetry is the backstop.
+    const tx = await sendWithNonceRetry(buyerNonceManager, () =>
+      marketplaceAsBuyer.buyCredits(body.listingId, body.amount)
+    );
     const receipt = await tx.wait();
 
     // Read the exact split back off the event Marketplace itself emitted, rather than
@@ -419,8 +421,9 @@ marketplaceRouter.post(
 
     logStage("MARKETPLACE", `Buyer ${buyerWallet.address} claiming faucet`);
 
-    const stablecoinAsBuyer = simStablecoin.connect(buyerWallet) as ethers.Contract;
-    const tx = await stablecoinAsBuyer.claimFaucet();
+    const buyerNonceManager = nonceManagerFor(buyerWallet);
+    const stablecoinAsBuyer = simStablecoin.connect(buyerNonceManager) as ethers.Contract;
+    const tx = await sendWithNonceRetry(buyerNonceManager, () => stablecoinAsBuyer.claimFaucet());
     const receipt = await tx.wait();
 
     logStage("MARKETPLACE", "Faucet claimed on chain", { txHash: receipt.hash, amount: faucetAmount.toString() });

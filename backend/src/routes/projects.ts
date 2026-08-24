@@ -3,6 +3,7 @@ import { ethers } from "ethers";
 import { z } from "zod";
 import { prisma } from "../db";
 import { projectRegistryAsRegistrar } from "../blockchain/contracts";
+import { registrarWallet, nonceManagerFor, sendWithNonceRetry } from "../blockchain/wallets";
 import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -85,11 +86,8 @@ projectsRouter.post(
       body.implementerAddress,
       boundaryTuples
     );
-    const tx = await projectRegistryAsRegistrar.registerProject(
-      body.name,
-      ecosystemInt,
-      body.implementerAddress,
-      boundaryTuples
+    const tx = await sendWithNonceRetry(nonceManagerFor(registrarWallet), () =>
+      projectRegistryAsRegistrar.registerProject(body.name, ecosystemInt, body.implementerAddress, boundaryTuples)
     );
     const receipt = await tx.wait();
 

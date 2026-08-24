@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import { z } from "zod";
 import { prisma } from "../db";
 import { carbonCreditToken } from "../blockchain/contracts";
-import { allServerWallets } from "../blockchain/wallets";
+import { allServerWallets, nonceManagerFor, sendWithNonceRetry } from "../blockchain/wallets";
 import { validateBody } from "../middleware/validate";
 import { asyncHandler } from "../utils/asyncHandler";
 import { logStage } from "../utils/logger";
@@ -145,13 +145,16 @@ creditsRouter.post(
       reason: body.retirementReason,
     });
 
-    const tokenAsHolder = carbonCreditToken.connect(holderWallet) as ethers.Contract;
+    const holderNonceManager = nonceManagerFor(holderWallet);
+    const tokenAsHolder = carbonCreditToken.connect(holderNonceManager) as ethers.Contract;
     const retirementId: bigint = await tokenAsHolder.retireCredits.staticCall(
       tokenId,
       body.amount,
       body.retirementReason
     );
-    const tx = await tokenAsHolder.retireCredits(tokenId, body.amount, body.retirementReason);
+    const tx = await sendWithNonceRetry(holderNonceManager, () =>
+      tokenAsHolder.retireCredits(tokenId, body.amount, body.retirementReason)
+    );
     const receipt = await tx.wait();
 
     logStage("RETIRE", "Retired on chain — credits permanently burned", {

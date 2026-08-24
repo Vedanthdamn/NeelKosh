@@ -4,7 +4,7 @@ import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../db";
 import { verificationRegistry, verificationRegistryAsVerifier } from "../blockchain/contracts";
-import { findImplementerWallet, verifierWallet } from "../blockchain/wallets";
+import { findImplementerWallet, verifierWallet, nonceManagerFor, sendWithNonceRetry } from "../blockchain/wallets";
 import { validateBody } from "../middleware/validate";
 import { requireRole } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -232,7 +232,9 @@ mrvRouter.post(
       photoAttached: Boolean(req.file),
     });
 
-    const verificationRegistryAsImplementer = verificationRegistry.connect(implementerWallet) as ethers.Contract;
+    const verificationRegistryAsImplementer = verificationRegistry.connect(
+      nonceManagerFor(implementerWallet)
+    ) as ethers.Contract;
 
     const submissionId: bigint = await verificationRegistryAsImplementer.submitForVerification.staticCall(
       body.projectId,
@@ -240,11 +242,8 @@ mrvRouter.post(
       body.tonnesCO2,
       dataHash
     );
-    const tx = await verificationRegistryAsImplementer.submitForVerification(
-      body.projectId,
-      body.vintage,
-      body.tonnesCO2,
-      dataHash
+    const tx = await sendWithNonceRetry(nonceManagerFor(implementerWallet), () =>
+      verificationRegistryAsImplementer.submitForVerification(body.projectId, body.vintage, body.tonnesCO2, dataHash)
     );
     const receipt = await tx.wait();
 
@@ -384,7 +383,9 @@ mrvRouter.post(
 
     logStage("VERIFY", `Verifier ${verifierWallet.address} rejecting submission ${submissionId}`, { reason });
 
-    const tx = await verificationRegistryAsVerifier.rejectVerification(submissionId, reason);
+    const tx = await sendWithNonceRetry(nonceManagerFor(verifierWallet), () =>
+      verificationRegistryAsVerifier.rejectVerification(submissionId, reason)
+    );
     const receipt = await tx.wait();
 
     logStage("VERIFY", "Rejected on chain", { txHash: receipt.hash });
